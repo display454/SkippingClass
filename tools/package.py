@@ -67,6 +67,12 @@ def add_file(zf: zipfile.ZipFile, src: Path, arc: str) -> None:
         # 而仓库在类 Unix 上 checkout 出来就是 LF，所以出包时统一转回 CRLF
         text = src.read_text(encoding="utf-8").replace("\r\n", "\n")
         zf.writestr(arc, text.replace("\n", "\r\n").encode("utf-8"))
+    elif src.suffix.lower() == ".sh":
+        info = zipfile.ZipInfo.from_file(src, arc)
+        info.create_system = 3
+        info.external_attr = 0o100755 << 16
+        data = src.read_bytes().replace(b"\r\n", b"\n")
+        zf.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
     else:
         zf.write(src, arc)
 

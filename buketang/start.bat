@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal
+set "PYTHONUTF8=1"
 cd /d "%~dp0"
 
 echo.
@@ -41,6 +42,9 @@ if not exist "%VPY%" (
     exit /b 1
   )
 
+)
+
+if not exist ".venv\.deps-ready" (
   echo [2/2] 安装依赖，第一次可能要几分钟 ...
   "%VPY%" -m pip install -q --upgrade pip
   "%VPY%" -m pip install -q -r requirements.txt
@@ -48,9 +52,15 @@ if not exist "%VPY%" (
     echo     默认源较慢，改用清华镜像重试 ...
     "%VPY%" -m pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
   )
+  if errorlevel 1 (
+    echo [x] 依赖安装失败，请检查网络后重新启动。
+    pause
+    exit /b 1
+  )
+  type nul > ".venv\.deps-ready"
 )
 
-"%VPY%" -c "import sys; sys.path.insert(0,'..'); from shared.audio_utils import find_ffmpeg" >nul 2>nul
+"%VPY%" -c "import sys; sys.path.insert(0,'..'); from shared.audio_utils import find_ffmpeg; sys.exit(0 if find_ffmpeg() else 1)" >nul 2>nul
 if errorlevel 1 (
   echo     [提示] 没检测到 ffmpeg，长音频切分和转码会失败。
   echo            Windows: winget install Gyan.FFmpeg

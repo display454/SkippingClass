@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 两个应用合起来的依赖（在仓库根目录建一个 .venv 就够了）
 # 如果只用其中一个应用，装对应目录下的 requirements.txt 也可以。
 
@@ -12,6 +13,7 @@ python-pptx>=1.0
 
 # 端侧转写（推荐，纯 CPU、不花钱）：SenseVoice + Silero VAD 分句
 sherpa-onnx>=2.0
+numpy>=1.24
 
 # 按内存给本地大模型建议时会用到；缺了也能跑
 psutil>=5.9

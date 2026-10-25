@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 flask>=3.0
 requests>=2.31
 python-docx>=1.1
 
 # 端侧转写（推荐，纯 CPU、不花钱）：SenseVoice + Silero VAD 分句
 sherpa-onnx>=2.0
+numpy>=1.24
 
 # 按需：只在选用「本地 faster-whisper」引擎时需要
 # faster-whisper>=1.0

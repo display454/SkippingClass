@@ -30,3 +30,6 @@ Thumbs.db
 .claude/
 .idea/
 .vscode/
+.env
+.env.*
+!.env.example

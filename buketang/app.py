@@ -21,6 +21,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from core import config, courses as course_store, summarize
+from core.backup import prepare_restore
 from core.store import STATUS_LABEL, store, RUNNING_STATUS
 from shared.version import __version__
 
@@ -585,7 +586,8 @@ def _stripped_config() -> dict:
         if isinstance(p, dict):
             for key in ("api_key", "access_key", "app_id"):
                 p.pop(key, None)
-    cfg["asr"] = asr
+    if cfg.get("asr") is not None:
+        cfg["asr"] = asr
     return cfg
 
 
@@ -637,8 +639,12 @@ def restore():
         return jsonify({"ok": False, "error": "正在恢复，请稍候"}), 409
 
     before = config.load()
-    tmp = Path(tempfile.mkdtemp(prefix="bt_restore_"))
+    tmp = Path(tempfile.mkdtemp(prefix="bt_restore_", dir=config.DATA_DIR.parent))
     try:
+        if any(l.get("status") in RUNNING_STATUS
+               or any(m.get("status") == "pending" for m in l.get("materials", []))
+               for l in store.all()) or any(j.get("status") == "running" for j in SUMMARY_JOBS.values()):
+            return jsonify({"ok": False, "error": "请先等待当前任务完成或取消，再恢复备份"}), 409
         with zipfile.ZipFile(upload) as zf:
             for info in zf.infolist():
                 target = (tmp / info.filename).resolve()
@@ -648,40 +654,35 @@ def restore():
                     return jsonify({"ok": False, "error": "备份包里有非法路径，已拒绝"}), 400
             zf.extractall(tmp)
 
-        has_lessons = (tmp / "lessons").is_dir()
-        if not has_lessons and not (tmp / "courses.json").exists():
-            return jsonify({"ok": False, "error": "这不像一份「不听课」的备份包"}), 400
-
-        broken = 0
-        for lf in (tmp / "lessons").glob("*/lesson.json"):
-            try:
-                json.loads(lf.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                broken += 1
-        if broken:
-            return jsonify({"ok": False, "error": f"备份包里有 {broken} 个课堂数据已损坏"}), 400
+        try:
+            prepare_restore(tmp, config.DATA_DIR)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        saved = config.DATA_DIR.parent / "restore_backups" / stamp
+        saved = config.DATA_DIR.parent / "restore_backups" / f"{stamp}_{uuid.uuid4().hex[:8]}"
         saved.parent.mkdir(parents=True, exist_ok=True)
         moved = False
         if config.DATA_DIR.exists():
-            shutil.move(str(config.DATA_DIR), str(saved))
+            config.DATA_DIR.rename(saved)
             moved = True
 
         try:
-            shutil.copytree(tmp, config.DATA_DIR)
+            # 临时目录与数据目录在同一磁盘上，校验完成后用重命名完成替换。
+            tmp.rename(config.DATA_DIR)
+            _keep_secrets(before)
+            store.reload()
+            course_store.courses.reload()
         except Exception:
-            # 恢复失败就把原来的数据放回去，不能让用户两头空
-            if moved and not config.DATA_DIR.exists():
-                shutil.move(str(saved), str(config.DATA_DIR))
+            if moved:
+                if config.DATA_DIR.exists():
+                    shutil.rmtree(config.DATA_DIR)
+                saved.rename(config.DATA_DIR)
+                store.reload()
+                course_store.courses.reload()
             raise
 
-        # 备份默认不含密钥；本机已经填好的 Key 不能被一份备份清空
-        _keep_secrets(before)
-
-        store.reload()
-        course_store.courses.reload()
+        SUMMARY_JOBS.clear()
 
         return jsonify({
             "ok": True,
@@ -719,6 +720,8 @@ def _keep_secrets(before: dict) -> None:
             if old.get(key) and not cur.get(key):
                 cur[key] = old[key]
 
+    if provs_after:
+        asr_after["providers"] = provs_after
     if asr_after:
         after["asr"] = asr_after
     config.save(after)

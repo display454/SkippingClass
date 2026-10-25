@@ -16,7 +16,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 # 数据目录可用环境变量重定向，便于隔离测试或把数据放到别处
-DATA_DIR = Path(os.environ.get("BUKETANG_DATA_DIR") or (ROOT / "data"))
+DATA_DIR = Path(os.environ.get("BUKETANG_DATA_DIR") or (ROOT / "data")).resolve()
 LESSON_DIR = DATA_DIR / "lessons"
 UPLOAD_DIR = DATA_DIR / "uploads"
 CONFIG_PATH = DATA_DIR / "config.json"
@@ -96,12 +96,12 @@ def ensure_dirs() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
-def _deep_merge(base: dict, patch: dict) -> dict:
+def _deep_merge(base: dict, patch: dict, allow_new: bool = False) -> dict:
     out = copy.deepcopy(base)
     for k, v in (patch or {}).items():
         if k in out and isinstance(out[k], dict) and isinstance(v, dict):
-            out[k] = _deep_merge(out[k], v)
-        elif k in out:
+            out[k] = _deep_merge(out[k], v, allow_new=allow_new or k == "asr")
+        elif k in out or allow_new:
             out[k] = v
     return out
 
@@ -280,7 +280,10 @@ def asr_config(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         base = dict(base)
         if own.get("provider"):
             base["provider"] = own["provider"]
-        base["providers"] = {**(base.get("providers") or {}), **(own.get("providers") or {})}
+        providers = dict(base.get("providers") or {})
+        for pid, values in (own.get("providers") or {}).items():
+            providers[pid] = {**providers.get(pid, {}), **values}
+        base["providers"] = providers
         for key in ("segment_minutes", "language"):
             if opt := own.get(key):
                 base[key] = opt

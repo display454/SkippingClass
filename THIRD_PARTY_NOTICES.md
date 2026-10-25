@@ -14,6 +14,7 @@
 | python-pptx | ≥1.0 | MIT | 直读 `.pptx` 文字（没装 Office 时的兜底） |
 | PyMuPDF | ≥1.24 | **AGPL-3.0** 或 Artifex 商业授权 | 讲义转 PDF、按页渲染截图 |
 | sherpa-onnx | ≥2.0 | Apache-2.0 | 端侧 SenseVoice / VAD 推理 |
+| NumPy | ≥1.24 | BSD-3-Clause | 端侧音频采样数据处理 |
 | psutil | ≥5.9 | BSD-3-Clause | 按本机内存建议本地模型的尺寸 |
 | pywin32 | ≥306（仅 Windows） | PSF | 调本机 Office 把 PPT / Word 转 PDF |
 | faster-whisper | ≥1.0 | MIT | 可选的另一个端侧引擎（默认不装） |

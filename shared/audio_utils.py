@@ -119,12 +119,6 @@ def plan_segments(duration: float, segment_seconds: int) -> list[tuple[float, fl
             continue
         segments.append((round(start, 3), round(length, 3)))
 
-    if len(segments) >= 2 and segments[-1][1] < 5:
-        s_start, _ = segments[-2]
-        l_start, l_len = segments[-1]
-        segments[-2] = (s_start, round(l_start + l_len - s_start, 3))
-        segments.pop()
-
     return segments
 
 

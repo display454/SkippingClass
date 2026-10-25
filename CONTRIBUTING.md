@@ -29,17 +29,22 @@ sudo apt install ffmpeg        # Ubuntu
 ## 跑一遍
 
 ```bash
-cd buketang           && python tests/e2e_offline.py && python tests/ui_check.py
-cd mp3-transcriber    && python tests/selftest.py    && python tests/ui_check.py
+cd buketang
+python tests/test_integrity.py
+python tests/e2e_offline.py
+python tests/ui_check.py
+cd ../mp3-transcriber
+python tests/selftest.py
+python tests/ui_check.py
 ```
 
-四个脚本都不花钱、不需要任何 Key，也不会碰你 `data/` 里的真实数据（自检用临时目录）。
+这些脚本都不花钱、不需要任何 Key，也不会碰你 `data/` 里的真实数据（自检用临时目录）。
 
 界面验收需要 Chrome / Edge / Chromium 之一；装在非常规位置可以用 `CHROME_PATH` 指定。
 
 ### CI 会替你跑什么
 
-推上去之后 GitHub Actions 跑两件事：`selftest.py` + `e2e_offline.py`（真转音频、真把 PPTX 转 PDF 再截图），以及打包 → 解压 → 起服务 → 打接口的发布包冒烟。
+推上去之后 GitHub Actions 跑完整性回归 `test_integrity.py`、`selftest.py` + `e2e_offline.py`（真转音频、真把 PPTX 转 PDF 再截图），以及打包 → 解压 → 起服务 → 打接口的发布包冒烟。
 
 `ui_check.py` 不在里面——它要真实浏览器的 CDP，CI 机器上没有。所以**前端改动请本地跑一遍再提 PR**，这是唯一靠自觉的一环。
 

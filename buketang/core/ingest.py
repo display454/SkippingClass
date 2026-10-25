@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +41,39 @@ def _abs(p: str | Path) -> str:
 
 
 def office_to_pdf(src: str | Path, dst: str | Path) -> bool:
-    """用本机 Office 把 PPT/DOC 转成 PDF。失败返回 False，由调用方降级。"""
-    if os.name != "nt":
+    """优先 Office，缺少 Office 时使用 LibreOffice；均不可用才降级为文本。"""
+    if os.name == "nt" and _office_com_to_pdf(src, dst):
+        return True
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice and os.name == "nt":
+        candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "LibreOffice/program/soffice.exe"
+        if candidate.is_file():
+            soffice = str(candidate)
+    if not soffice:
         return False
     try:
+        # 独立配置避免与已打开的 LibreOffice 实例争用，输出目录避免覆盖其他讲义。
+        with tempfile.TemporaryDirectory(prefix="bt_office_") as tmp:
+            work = Path(tmp)
+            result = subprocess.run(
+                [soffice, f"-env:UserInstallation={(work / 'profile').as_uri()}",
+                 "--headless", "--convert-to", "pdf", "--outdir", str(work), _abs(src)],
+                capture_output=True, timeout=120,
+                creationflags=0x08000000 if os.name == "nt" else 0,
+            )
+            converted = work / f"{Path(src).stem}.pdf"
+            if result.returncode == 0 and converted.is_file():
+                Path(dst).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(converted, dst)
+                return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return False
+
+
+def _office_com_to_pdf(src: str | Path, dst: str | Path) -> bool:
+    try:
+        import pythoncom
         import win32com.client as win32  # noqa: WPS433
     except ImportError:
         return False
@@ -50,9 +81,10 @@ def office_to_pdf(src: str | Path, dst: str | Path) -> bool:
     src_abs, dst_abs = _abs(src), _abs(dst)
     ext = Path(src).suffix.lower()
 
+    pythoncom.CoInitialize()
     try:
         if ext in PPT_EXT:
-            app = win32.Dispatch("PowerPoint.Application")
+            app = win32.DispatchEx("PowerPoint.Application")
             try:
                 pres = None
                 for with_window in (False, True):   # 有些版本不接受 WithWindow=False
@@ -71,7 +103,7 @@ def office_to_pdf(src: str | Path, dst: str | Path) -> bool:
                 app.Quit()
 
         elif ext in DOC_EXT:
-            app = win32.Dispatch("Word.Application")
+            app = win32.DispatchEx("Word.Application")
             try:
                 app.Visible = False
                 app.DisplayAlerts = 0
@@ -84,6 +116,8 @@ def office_to_pdf(src: str | Path, dst: str | Path) -> bool:
             return False
     except Exception:  # noqa: BLE001  COM 失败不致命，走降级
         return False
+    finally:
+        pythoncom.CoUninitialize()
 
     return Path(dst).exists()
 

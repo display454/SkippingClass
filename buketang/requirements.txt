@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 「不听课」基础依赖
 flask>=3.0
 requests>=2.31
@@ -14,6 +15,7 @@ pywin32>=306 ; sys_platform == "win32"
 # 语音引擎共用 ../shared/asr，凭证继承 ../mp3-transcriber/data/config.json
 # 端侧转写（推荐，纯 CPU、不花钱）：
 sherpa-onnx>=2.0
+numpy>=1.24
 # 另一个端侧选项，按需安装：
 # faster-whisper>=1.0
 

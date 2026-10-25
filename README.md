@@ -1,4 +1,4 @@
-# 听课工具集
+# 不听课 · SkippingClass
 
 两个在**自己电脑上跑**的小应用，一套共用的语音识别层。都只监听 `127.0.0.1`，不联网也能用（端侧模式）。
 
@@ -24,7 +24,7 @@
 
 ### 方式 A：下载发布包（推荐给使用者）
 
-到本仓库的 **Releases** 页面（GitHub 仓库首页右侧）下载对应 zip，解压后双击启动：
+到 [Releases](https://github.com/display454/SkippingClass/releases/latest) 下载对应 zip，解压后双击启动：
 
 | 下载 | 内容 |
 |---|---|
@@ -43,10 +43,9 @@ chmod +x start-buketang.sh && ./start-buketang.sh
 
 ### 方式 B：克隆仓库
 
-在仓库页点 **Code → HTTPS** 复制地址，然后：
-
 ```bash
-git clone <刚复制的地址> tingke && cd tingke
+git clone https://github.com/display454/SkippingClass.git
+cd SkippingClass
 ./start-buketang.sh          # 或 start-transcriber.sh
 ```
 
@@ -100,7 +99,7 @@ FFmpeg 有没有装好，页面上会直接显示，不用猜。
 ## 三、仓库结构
 
 ```
-tingke/
+SkippingClass/
 ├── buketang/                  # 「不听课」
 │   ├── app.py                 # Flask 路由
 │   ├── core/                  # 讲义解析 / 提示词 / 渲染 / 课程汇总
@@ -166,6 +165,7 @@ tingke/
 # 不听课
 cd buketang
 python tests/e2e_offline.py     # 离线全链路：造讲义 + 静音音频 + 伪造模型返回
+python tests/test_integrity.py  # 备份跨系统迁移、恢复回滚、配置继承和分段边界
 python tests/ui_check.py        # 98 项交互验收（自动起服务、自动造演示数据）
 python tests/asr_local.py       # 14 项端侧转写（需已下载 SenseVoice 模型）
 

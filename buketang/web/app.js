@@ -788,7 +788,7 @@ function mdToHtml(md, lessonId) {
       if (!/^(https?:)?\/\//.test(url) && !url.startsWith('/')) {
         url = `/api/lessons/${lessonId}/asset/${url}`;
       }
-      out.push(`<figure><img src="${url}" alt="${esc(imgOnly[1])}" loading="lazy">` +
+      out.push(`<figure><img src="${esc(url)}" alt="${esc(imgOnly[1])}" loading="lazy">` +
         `<figcaption>${esc(imgOnly[1])}</figcaption></figure>`);
       continue;
     }

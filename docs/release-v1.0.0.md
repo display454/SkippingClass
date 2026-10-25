@@ -1,4 +1,4 @@
-# v1.0.0 — 第一个能放心交给别人用的版本
+# 不听课 · SkippingClass v1.0.0
 
 两个在**自己电脑上跑**的听课工具，共用一套语音识别层。只监听 `127.0.0.1`，端侧模式下不联网。
 
@@ -10,7 +10,7 @@
 | `buketang-v1.0.0.zip` | 1.5 MB | 只要「不听课」（讲义 + 录音 → 复习指导） |
 | `mp3-transcriber-v1.0.0.zip` | 0.8 MB | 只要「语音转录工坊」（录音 → Markdown / Word） |
 
-解压后双击 `start.bat`（macOS / Linux 用 `start.sh`）。首次启动会自建虚拟环境装依赖，之后秒开。
+合集包解压后双击 `start-buketang.bat` 或 `start-transcriber.bat`；单应用包双击 `start.bat`。macOS / Linux 使用同名 `.sh` 脚本。首次启动会自建虚拟环境装依赖；安装中断后，重新启动会继续重试。
 
 需要 Python 3.10+ 和 FFmpeg：
 
@@ -34,11 +34,7 @@ sudo apt install ffmpeg        # Ubuntu
 sha256sum -c SHA256SUMS.txt     # macOS: shasum -a 256 -c
 ```
 
-```
-c80845295b1442b211acc3a724cda04ad34d2f916b184f2dc70ad7f49a11944b  tingke-suite-v1.0.0.zip
-94a790c1c573ab886dffce004b97e49ce6b13d9b80ab6a25584a9deea93abbff  buketang-v1.0.0.zip
-086576678df482e753faf1bb1792beefe566be37b5716011dd96b9484a04f70d  mp3-transcriber-v1.0.0.zip
-```
+请同时下载本次 Release 附带的 `SHA256SUMS.txt`，与三个 zip 放在同一目录后运行上述命令。
 
 ## 这个版本有什么
 
@@ -59,6 +55,12 @@ c80845295b1442b211acc3a724cda04ad34d2f916b184f2dc70ad7f49a11944b  tingke-suite-v
 
 ### 工程
 
+- 修复中文 Windows 上 pip 读取依赖文件时的编码错误，补齐 NumPy 运行依赖
+- 安装失败后重新启动会重试，安装仍失败时保留明确报错
+- 备份可跨系统、跨目录恢复，录音、讲义、复习指导和课程汇总的路径自动迁移；恢复失败回滚，拒绝损坏备份与运行期间恢复
+- 修复语音配置局部覆盖丢失继承选项、恢复时未补回部分凭证的问题
+- 接入 LibreOffice 的真实 PDF 转换，修复 Windows 后台线程调用 Office 的初始化
+- 音频末尾不足 5 秒时独立保留，确保每段不超过识别引擎上限
 - 两个应用统一到同一套纸感编辑风设计系统（`shared/web/theme.css`）
 - 版本号单一来源 `shared/version.py`，页脚与 `/api/health` 都读它
 - 启动脚本：`py -3` 优先 → 版本校验 → 建 venv → pip 失败自动换清华镜像 → 缺 FFmpeg 给提示
