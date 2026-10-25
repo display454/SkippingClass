@@ -62,7 +62,10 @@ def main() -> int:
     info = audio.probe(src)
     ok &= check("时长识别", 1495 <= info["duration"] <= 1505, f'{info["duration"]:.1f}s')
     plan = audio.plan_segments(info["duration"], 300)
-    ok &= check("按 5 分钟切分为 5 段", len(plan) == 5, str(plan))
+    ok &= check("按 5 分钟切分并保留编码尾段",
+                len(plan) in (5, 6) and all(0 < length <= 300 for _, length in plan)
+                and abs(sum(length for _, length in plan) - info["duration"]) < 0.01,
+                str(plan))
 
     print("\n[3/6] 多引擎分段自适应")
     for pid in ("volc", "openai", "dashscope", "local"):

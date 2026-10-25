@@ -119,6 +119,15 @@ def plan_segments(duration: float, segment_seconds: int) -> list[tuple[float, fl
             continue
         segments.append((round(start, 3), round(length, 3)))
 
+    if len(segments) >= 2 and segments[-1][1] < min(5, segment_seconds):
+        # 编码补齐可能多出不足一秒的尾段，单独转码会产生空文件。
+        # 从前段挪几秒给尾段，既不漏内容，也不突破引擎单段时长上限。
+        start, previous = segments[-2]
+        total = previous + segments[-1][1]
+        tail = min(5, segment_seconds)
+        segments[-2] = (start, round(total - tail, 3))
+        segments[-1] = (round(start + total - tail, 3), tail)
+
     return segments
 
 

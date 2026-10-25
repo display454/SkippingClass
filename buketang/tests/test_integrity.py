@@ -135,11 +135,13 @@ class IntegrityTests(unittest.TestCase):
 
     def test_audio_tail_never_exceeds_provider_limit(self):
         from shared.audio_utils import plan_segments
-        for duration in (600, 601, 1203, 1800.1):
+        for duration in (600, 601, 1203, 1500.084, 1800.1):
             with self.subTest(duration=duration):
                 plan = plan_segments(duration, 600)
                 self.assertTrue(all(0 < length <= 600 for _, length in plan))
                 self.assertAlmostEqual(sum(length for _, length in plan), duration)
+                if len(plan) > 1:
+                    self.assertGreaterEqual(plan[-1][1], 5)
 
     def test_libreoffice_fallback(self):
         from core import ingest
