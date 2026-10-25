@@ -35,9 +35,9 @@ sha256sum -c SHA256SUMS.txt     # macOS: shasum -a 256 -c
 ```
 
 ```
-aaf1b3244c82f07822f07054739747837409cacc143ce0030703805fd8b419fb  tingke-suite-v1.0.0.zip
-8b2615416e5bbd3fd3117696f6b97e535210e8cba70c6f755d1d1bde162c95d2  buketang-v1.0.0.zip
-eb6164245a1ad9c1bf9ea1863ac41da7ff09232a0aef0c247c5edae24a4cbcd5  mp3-transcriber-v1.0.0.zip
+c80845295b1442b211acc3a724cda04ad34d2f916b184f2dc70ad7f49a11944b  tingke-suite-v1.0.0.zip
+94a790c1c573ab886dffce004b97e49ce6b13d9b80ab6a25584a9deea93abbff  buketang-v1.0.0.zip
+086576678df482e753faf1bb1792beefe566be37b5716011dd96b9484a04f70d  mp3-transcriber-v1.0.0.zip
 ```
 
 ## 这个版本有什么
@@ -63,9 +63,10 @@ eb6164245a1ad9c1bf9ea1863ac41da7ff09232a0aef0c247c5edae24a4cbcd5  mp3-transcribe
 - 版本号单一来源 `shared/version.py`，页脚与 `/api/health` 都读它
 - 启动脚本：`py -3` 优先 → 版本校验 → 建 venv → pip 失败自动换清华镜像 → 缺 FFmpeg 给提示
 - 测试全会自己造数据、自己起服务、自己收场：`e2e_offline.py`、`ui_check.py`（98 + 46 项）、`selftest.py`、`asr_local.py`
-- 发布链路也进了测试：`tools/package.py` 出包 → `tools/smoke_release.py` 解压、起服务、打接口、查换行符（56 项）→ GitHub Actions 上跑一遍
+- 发布链路也进了测试：`tools/package.py` 出包 → `tools/smoke_release.py` 解压、起服务、打接口、查换行符（59 项）→ GitHub Actions 上跑一遍
+- 每个包都随附 `LICENSE`（MIT）与 `THIRD_PARTY_NOTICES.md`（含 PyMuPDF 的 AGPL 说明），冒烟里有断言防止漏带
 
-完整改动见 [CHANGELOG.md](CHANGELOG.md)。
+完整改动见仓库里的 `CHANGELOG.md`；依赖与模型的许可清单见 `THIRD_PARTY_NOTICES.md`（注意 PyMuPDF 是 AGPL-3.0）。
 
 ## 已知限制
 

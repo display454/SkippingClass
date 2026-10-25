@@ -86,6 +86,10 @@ python app.py
 
 密钥只写入本机 `data/config.json`，不会上传到任何地方。设置页里显示的是掩码，留空表示不修改。
 
+换成 OpenAI 兼容引擎时，卡片点开就是 Base URL / Key / 模型名三项，换厂商只改 Base URL：
+
+![OpenAI 兼容引擎：换厂商只改 Base URL](assets/screenshots/settings-openai.png)
+
 ### 先试一下
 
 如果暂时没有密钥：打开设置里的 **演示模式**，保存后拖一个音频进来，能看到完整流程和产物结构（内容是示例文本，会明确标注）。
@@ -290,3 +294,9 @@ python tests/ui_check.py    # 交互验收：自己起临时服务、上传音�
 - 服务只监听 `127.0.0.1`，局域网其他机器访问不到
 - 音频仅在处理期间存在于 `data/uploads/`，删除任务时一并清除
 - 除了你选择的识别引擎，没有任何第三方能看到音频内容
+
+---
+
+## 十、许可
+
+本应用代码是 [MIT](../LICENSE)。依赖与语音模型的许可见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

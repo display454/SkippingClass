@@ -24,7 +24,7 @@
 
 ### 方式 A：下载发布包（推荐给使用者）
 
-到 [Releases](../../releases) 下对应系统的 zip，解压后双击启动：
+到本仓库的 **Releases** 页面（GitHub 仓库首页右侧）下载对应 zip，解压后双击启动：
 
 | 下载 | 内容 |
 |---|---|
@@ -43,8 +43,10 @@ chmod +x start-buketang.sh && ./start-buketang.sh
 
 ### 方式 B：克隆仓库
 
+在仓库页点 **Code → HTTPS** 复制地址，然后：
+
 ```bash
-git clone <本仓库地址> tingke && cd tingke
+git clone <刚复制的地址> tingke && cd tingke
 ./start-buketang.sh          # 或 start-transcriber.sh
 ```
 
@@ -123,7 +125,11 @@ tingke/
 ├── models/                    # 端侧模型（230MB，git 忽略，删了会自动重下）
 ├── start-buketang.bat|sh      # 共用 .venv 的启动脚本
 ├── start-transcriber.bat|sh
-└── requirements.txt           # 两个应用合起来的依赖
+├── tools/                     # 打包与发布包冒烟（不是运行时依赖）
+├── docs/                      # 发布说明
+├── requirements.txt           # 两个应用合起来的依赖
+├── LICENSE                    # MIT
+└── THIRD_PARTY_NOTICES.md     # 依赖与模型的许可清单
 ```
 
 ### 为什么放在一个仓库
@@ -202,4 +208,6 @@ python tests/shots.py http://127.0.0.1:8759/ assets/screenshots
 
 ## 七、许可
 
-[MIT](LICENSE)。随便用、随便改，出问题自己担（尤其是考试）。
+本仓库自己的代码是 [MIT](LICENSE)。随便用、随便改，出问题自己担（尤其是考试）。
+
+依赖项各有各的许可，其中一处需要留意：**PyMuPDF 是 AGPL-3.0**（商业授权双轨），讲义转 PDF 与截图靠它。你如果只是自己用、或原样转发这个仓库，没有任何额外义务；但如果**把打包好的可运行版本再分发出去**（挂到自己网站上、塞进 U 盘批量发），AGPL 要求你一并提供对应源码。完整清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

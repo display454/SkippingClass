@@ -74,8 +74,16 @@
 ### 发布
 
 - `tools/package.py`：一条命令出三个包（合集 / 单应用 ×2）+ `SHA256SUMS.txt`
-- `tools/smoke_release.py`：把每个包解压、起服务、打接口，验证「下载下来就能跑」（56 项）
+- `tools/smoke_release.py`：把每个包解压、起服务、打接口，验证「下载下来就能跑」（59 项）
 - 出包时统一换行符：`.bat` 转 CRLF（cmd.exe 对纯 LF 的批处理会挑食，双击闪退很难查），`.sh` 保持 LF
 - 单应用包里的 README 会把截图路径补前缀，并把「去隔壁应用配引擎」改成本地零配置的说法——单独装的人没有隔壁
 - 单应用包零 Key 可跑：没检测到同目录的另一个应用时，默认端侧 SenseVoice
 - `.github/workflows/ci.yml`：Linux 上跑自检 + 打包冒烟，产物作为 artifact 上传
+
+### 许可与合规
+
+- 补齐 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)：逐个列依赖的许可，并单独说明 **PyMuPDF 是 AGPL-3.0**——自己用没问题，把可运行版本再分发要注意
+- 发布包内随附 `LICENSE` 与 `THIRD_PARTY_NOTICES.md`，冒烟里加断言防止漏带
+- 四个 `start*.sh` 补上可执行位（`git update-index --chmod=+x`），Linux 上 `./start.sh` 不用先 chmod
+- README / CONTRIBUTING 里失效的 `releases` 相对链接与 `<本仓库地址>` 占位符，改成不依赖仓库地址的说法
+- 两个应用的 README 末尾补「许可」章节；单应用包里 `../LICENSE` 这类跨目录链接会被拉平到包根

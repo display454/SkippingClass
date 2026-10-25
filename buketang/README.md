@@ -328,3 +328,10 @@ python tests/asr_local.py       # 端侧转写，需要已下载模型
 - 讲义和录音只在你机器、你选的语音引擎、你选的文本模型之间传输
 - 全端侧模式（SenseVoice + Ollama）下，一个字都不出本机
 - 密钥只写入本机 `data/config.json`，页面显示的是掩码
+
+---
+
+## 十、许可
+
+本应用代码是 [MIT](../LICENSE)。依赖与语音模型的许可见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
+——其中 PyMuPDF（讲义转 PDF 与截图）是 **AGPL-3.0**，自己用没问题，把打包好的可运行版本再分发要注意。

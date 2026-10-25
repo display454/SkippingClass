@@ -96,6 +96,7 @@ def smoke(zip_path: Path) -> None:
     check("带了启动脚本", len(starts), lambda n: n is not None and n >= 1)
     check("带了 README", (root / "README.md").exists(), True)
     check("带了 LICENSE", (root / "LICENSE").exists(), True)
+    check("带了第三方许可说明", (root / "THIRD_PARTY_NOTICES.md").exists(), True)
     check("带了 requirements.txt", (root / "requirements.txt").exists(), True)
     check("没把 data/ 打进来", any(p.name == "data" for p in root.rglob("data")), False)
     check("没把 models/ 打进来", any(p.name == "models" for p in root.rglob("models")), False)
@@ -111,13 +112,14 @@ def smoke(zip_path: Path) -> None:
               if b"\r\n" in p.read_bytes()]
     check(".sh 是 LF 换行", bad_sh, [])
 
-    # README 是下载后第一眼看到的东西：截图不能裂，指路不能指向包里不存在的应用
+    # README 是下载后第一眼看到的东西：截图不能裂，链接不能指到包外，也不能指向包里不存在的应用
     readme = root / "README.md"
     if readme.exists():
         md = readme.read_text(encoding="utf-8", errors="replace")
-        links = re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", md)
-        missing = [l for l in links if not l.startswith("http") and not (root / l).exists()]
-        check("README 截图全部能找到", missing, [])
+        links = re.findall(r"\]\(([^)\s]+)\)", md)
+        rel = [l for l in links if not l.startswith(("http", "#", "mailto"))]
+        broken = [l for l in rel if not (root / l.split("#")[0]).exists()]
+        check("README 里的链接都在包内", broken, [])
         if len(targets) == 1:
             peer = {"buketang": "语音转录工坊", "mp3-transcriber": "不听课"}.get(targets[0].parent.name)
             check("单应用包不再提到隔壁应用", (("隔壁" in md) or (peer in md) if peer else False), False)

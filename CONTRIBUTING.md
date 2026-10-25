@@ -5,7 +5,8 @@
 ## 环境
 
 ```bash
-git clone <本仓库地址> tingke && cd tingke
+# 先 fork，再 clone 你自己的 fork（仓库页 Code → HTTPS 复制地址）
+git clone <你复制的地址> tingke && cd tingke
 python -m venv .venv
 
 # Windows
