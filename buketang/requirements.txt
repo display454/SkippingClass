@@ -1,0 +1,24 @@
+# 「不听课」基础依赖
+flask>=3.0
+requests>=2.31
+python-docx>=1.1
+pymupdf>=1.24
+
+# 讲义解析：PPT 文字兜底（.pptx 直读）
+python-pptx>=1.0
+
+# Windows 下把 PPT / Word 转成 PDF 再截图，需要 Office 与 pywin32；
+# macOS / Linux 请装 LibreOffice（soffice），或只导入 PDF 讲义。
+pywin32>=306 ; sys_platform == "win32"
+
+# 语音引擎共用 ../shared/asr，凭证继承 ../mp3-transcriber/data/config.json
+# 端侧转写（推荐，纯 CPU、不花钱）：
+sherpa-onnx>=2.0
+# 另一个端侧选项，按需安装：
+# faster-whisper>=1.0
+
+# 按内存给「本地大模型跑哪个尺寸」提建议；缺了按 16GB 估，也能跑
+psutil>=5.9
+
+# 大模型走 OpenAI 兼容协议（豆包 / DeepSeek / 通义 / OpenAI，
+# 或本机 Ollama / LM Studio），只依赖 requests，不需要额外 SDK。

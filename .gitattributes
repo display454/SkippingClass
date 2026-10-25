@@ -1,0 +1,21 @@
+# 统一换行符，避免 Windows 上改过的脚本在 macOS/Linux 上跑不了
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh  text eol=lf
+
+# 二进制，别做任何转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.docx binary
+*.pdf  binary
+*.zip  binary
+*.wav  binary
+*.onnx binary
+
+# 截图在 GitHub 上按图片处理
+*.png linguist-documentation

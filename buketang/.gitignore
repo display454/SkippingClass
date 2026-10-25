@@ -1,0 +1,9 @@
+# 运行时数据（含 API Key 与录音，切勿提交）
+data/
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db

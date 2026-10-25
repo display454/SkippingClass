@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语音转录工坊</title>
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2M21 12h.01"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>语音转录工坊</h1>
+        <p>录音文件识别 · 一键导出 Markdown / Word</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="chip" id="chipEngine">—</span>
+      <span class="chip" id="chipKey">—</span>
+      <button class="theme-btn" data-theme-toggle title="切换主题"></button>
+      <button class="btn btn-ghost" id="btnSettings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        设置
+      </button>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" multiple
+             accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.amr,.wma,.opus,.webm,.mp4,.mov,.mkv,.avi">
+      <div class="dz-inner">
+        <div class="dz-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 16V4m0 0L8 8m4-4 4 4"/>
+            <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+          </svg>
+        </div>
+        <h2>把音频拖到这里</h2>
+        <p>或点击选择文件 · 支持 mp3 / wav / m4a / mp4 等，可一次选多个</p>
+        <span class="dz-hint">当前引擎：<b id="dzEngine">—</b></span>
+      </div>
+      <div class="dz-progress" id="dzProgress"><span></span></div>
+    </section>
+
+    <div class="notice hidden" id="setupNote">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5M12 16h.01"/></svg>
+      <span>当前引擎还没配好，上传会被拒绝。</span>
+      <button class="notice-act" id="btnSetup">去设置</button>
+    </div>
+
+    <div class="toolbar">
+      <h3>任务列表 <span class="count" id="taskCount">0</span></h3>
+      <div class="toolbar-right">
+        <button class="btn btn-text" id="btnDownloadAll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          打包下载全部
+        </button>
+        <button class="btn btn-text" id="btnClearDone">清除已完成</button>
+      </div>
+    </div>
+
+    <div class="jobs" id="jobs"></div>
+
+    <div class="empty" id="emptyState">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="3"/>
+        <path d="M8 10h8M8 14h5"/>
+      </svg>
+      <p>还没有任务，先上传一个音频试试</p>
+    </div>
+  </main>
+</div>
+
+<!-- 设置抽屉 -->
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>设置</h2>
+    <button class="icon-btn" id="btnCloseDrawer" aria-label="关闭">✕</button>
+  </div>
+
+  <div class="drawer-body">
+    <div class="group">
+      <label class="group-title">识别引擎</label>
+      <div class="engines" id="engineList"></div>
+    </div>
+
+    <!-- 火山引擎 -->
+    <div class="group engine-config" data-engine="volc">
+      <label class="group-title">火山引擎配置</label>
+      <div class="seg" id="authMode">
+        <button data-value="api_key" class="active">新版 API Key</button>
+        <button data-value="legacy">旧版 APP ID</button>
+      </div>
+
+      <div class="field" id="fieldApiKey">
+        <label>API Key</label>
+        <input type="password" id="volcApiKey" placeholder="粘贴控制台的 API Key" autocomplete="off">
+      </div>
+
+      <div id="fieldLegacy" class="hidden">
+        <div class="field">
+          <label>APP ID</label>
+          <input type="text" id="volcAppId" placeholder="例如 1234567890" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Access Token</label>
+          <input type="password" id="volcAccessKey" placeholder="旧版控制台的 Access Token" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>调用方式</label>
+        <div class="seg" id="volcMode">
+          <button data-value="standard" class="active">标准版 · 异步</button>
+          <button data-value="flash">极速版 · 同步</button>
+        </div>
+        <p class="tip" id="modeTip">标准版支持 5 小时长音频，异步提交后轮询结果。</p>
+      </div>
+
+      <div class="field">
+        <label>模型版本</label>
+        <select id="modelVersion">
+          <option value="20">豆包录音文件识别模型 2.0（推荐）</option>
+          <option value="10">豆包录音文件识别模型 1.0（兼容旧账号）</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- OpenAI 兼容 -->
+    <div class="group engine-config hidden" data-engine="openai">
+      <label class="group-title">OpenAI 兼容配置</label>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="oaiApiKey" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Base URL<em>硅基流动 / Groq / 自建网关都改这里</em></label>
+        <input type="text" id="oaiBaseUrl" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="field">
+        <label>模型</label>
+        <input type="text" id="oaiModel" list="oaiModelList" placeholder="whisper-1">
+        <datalist id="oaiModelList">
+          <option value="whisper-1">带时间戳，最稳</option>
+          <option value="gpt-4o-transcribe">更准，无时间戳</option>
+          <option value="gpt-4o-mini-transcribe">便宜，无时间戳</option>
+          <option value="whisper-large-v3">Groq</option>
+          <option value="FunAudioLLM/SenseVoiceSmall">硅基流动</option>
+        </datalist>
+      </div>
+      <div class="field">
+        <label>提示词<em>可选。填专有名词可显著提高准确率</em></label>
+        <input type="text" id="oaiPrompt" placeholder="例如：Transformer、注意力机制、消融实验">
+      </div>
+      <p class="tip">whisper-1 返回分句时间戳；gpt-4o-transcribe 系列只返回纯文本，时间轴会按字数估算。</p>
+    </div>
+
+    <!-- 阿里百炼 -->
+    <div class="group engine-config hidden" data-engine="dashscope">
+      <label class="group-title">阿里云百炼配置</label>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="dsApiKey" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Base URL<em>新版控制台需换成带 WorkspaceId 的地址</em></label>
+        <input type="text" id="dsBaseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1">
+      </div>
+      <div class="field">
+        <label>模型</label>
+        <input type="text" id="dsModel" placeholder="qwen3-asr-flash">
+      </div>
+      <p class="tip">qwen3-asr-flash 返回纯文本，时间轴按字数估算；单段上限约 10MB，分段会自动缩短。</p>
+    </div>
+
+    <!-- 本地 -->
+    <div class="group engine-config hidden" data-engine="local">
+      <label class="group-title">本地模型配置</label>
+      <div class="field">
+        <label>模型规模<em>越大越准，也越慢越占空间</em></label>
+        <select id="localModel">
+          <option value="tiny">tiny · 最快，准确率一般（75MB）</option>
+          <option value="base">base · 轻量（145MB）</option>
+          <option value="small">small · 推荐平衡（480MB）</option>
+          <option value="medium">medium · 更准（1.5GB）</option>
+          <option value="large-v3">large-v3 · 最准（3GB）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>运行设备</label>
+        <select id="localDevice">
+          <option value="cpu">CPU</option>
+          <option value="cuda">GPU（NVIDIA 显卡）</option>
+        </select>
+      </div>
+      <label class="switch-row">
+        <span>静音过滤<em>跳过无人声片段，速度更快</em></span>
+        <input type="checkbox" id="localVad" checked><i class="switch"></i>
+      </label>
+      <p class="tip">完全离线、不花钱。首次使用会下载模型（走国内镜像），之后可断网运行。</p>
+    </div>
+
+    <!-- 本地 SenseVoice -->
+    <div class="group engine-config hidden" data-engine="sensevoice">
+      <label class="group-title">本地 SenseVoice 配置</label>
+      <div class="field">
+        <label>模型状态</label>
+        <div class="sv-row">
+          <span class="sv-dot" id="svDot"></span>
+          <span class="sv-text" id="svStateText">检测中…</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btnSvDownload">下载模型（约 230MB）</button>
+      <div class="field" style="margin-top:14px">
+        <label>线程数<em>0 = 自动按 CPU 核数</em></label>
+        <input type="number" id="svThreads" min="0" max="32" value="0">
+      </div>
+      <label class="switch-row">
+        <span>数字与标点规整<em>把「一九七零年」转成「1970 年」</em></span>
+        <input type="checkbox" id="svItn" checked><i class="switch"></i>
+      </label>
+      <p class="tip">完全离线、不花钱。中文准确率优于同体量 Whisper，纯 CPU 约 20 倍实时，一小时课约三分钟。</p>
+    </div>
+
+    <!-- 火山识别选项 -->
+    <div class="group engine-config" data-engine="volc">
+      <label class="group-title">识别选项</label>
+      <label class="switch-row">
+        <span>数字与日期规范化<em>把「一九七零年」转成「1970 年」</em></span>
+        <input type="checkbox" id="enableItn" checked><i class="switch"></i>
+      </label>
+      <label class="switch-row">
+        <span>自动添加标点<em>提升长文本可读性</em></span>
+        <input type="checkbox" id="enablePunc" checked><i class="switch"></i>
+      </label>
+      <label class="switch-row">
+        <span>语义顺滑<em>删除「嗯、那个」等口头语</em></span>
+        <input type="checkbox" id="enableDdc"><i class="switch"></i>
+      </label>
+      <label class="switch-row">
+        <span>说话人分离<em>区分「说话人 1 / 2」，仅中文生效</em></span>
+        <input type="checkbox" id="enableSpeaker"><i class="switch"></i>
+      </label>
+    </div>
+
+    <!-- 通用 -->
+    <div class="group">
+      <label class="group-title">通用</label>
+      <div class="field">
+        <label>识别语种</label>
+        <select id="language">
+          <option value="">自动识别（中英 + 多方言）</option>
+          <option value="zh-CN">中文普通话</option>
+          <option value="yue-CN">粤语</option>
+          <option value="en-US">英语</option>
+          <option value="ja-JP">日语</option>
+          <option value="ko-KR">韩语</option>
+          <option value="es-MX">西班牙语</option>
+          <option value="fr-FR">法语</option>
+          <option value="de-DE">德语</option>
+          <option value="ru-RU">俄语</option>
+          <option value="pt-BR">葡萄牙语</option>
+          <option value="ar-SA">阿拉伯语</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="group">
+      <label class="group-title">输出</label>
+      <div class="field">
+        <label>导出格式</label>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="outMd" checked><span>Markdown</span></label>
+          <label class="check"><input type="checkbox" id="outDocx" checked><span>Word</span></label>
+          <label class="check"><input type="checkbox" id="outTxt"><span>纯文本</span></label>
+        </div>
+      </div>
+      <label class="switch-row">
+        <span>附上时间轴<em>按分句标注起始时间，便于对轴</em></span>
+        <input type="checkbox" id="includeTimeline" checked><i class="switch"></i>
+      </label>
+      <div class="field">
+        <label>分段长度<em>超出当前引擎上限时会自动缩短</em></label>
+        <div class="range-row">
+          <input type="range" id="segmentMinutes" min="1" max="60" step="1" value="20">
+          <output id="segmentValue">20 分钟</output>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <label class="group-title">调试</label>
+      <label class="switch-row">
+        <span>演示模式<em>不调用接口，用示例文本跑通全流程</em></span>
+        <input type="checkbox" id="mockMode"><i class="switch"></i>
+      </label>
+    </div>
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-solid btn-block" id="btnSave">保存设置</button>
+  </div>
+</aside>
+
+<!-- 预览弹层 -->
+<div class="modal" id="modal" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 id="modalTitle">转录结果</h2>
+        <p id="modalMeta"></p>
+      </div>
+      <div class="modal-actions">
+        <span class="seg-mini" id="modalTabs">
+          <button data-tab="rendered" class="active">阅读</button>
+          <button data-tab="raw">原文</button>
+        </span>
+        <button class="btn btn-line btn-sm" id="btnCopyMd" title="复制全文，可直接粘进笔记软件">复制</button>
+        <button class="icon-btn" id="btnCloseModal" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

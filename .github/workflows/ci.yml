@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 全链路：真的转一遍音频、真的把 PPTX 转 PDF 再截图，所以要 ffmpeg + LibreOffice
+  full:
+    name: 全链路（${{ matrix.os }} / py${{ matrix.python }}）
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            buketang/requirements.txt
+            mp3-transcriber/requirements.txt
+
+      - name: 装 ffmpeg 与 LibreOffice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libreoffice-impress fonts-noto-cjk
+
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 语音转录工坊自检（演示模式走真链路）
+        working-directory: mp3-transcriber
+        run: python tests/selftest.py
+
+      - name: 不听课离线端到端自检
+        working-directory: buketang
+        run: python tests/e2e_offline.py
+
+  # 发布链路：打三个包，再逐个解压、起服务、打接口
+  package:
+    name: 发布包冒烟
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 打包
+        run: python tools/package.py
+
+      - name: 解压并起服务
+        run: python tools/smoke_release.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-zips
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  # 说明：界面验收脚本（tests/ui_check.py）需要 Chrome/Edge，CI 里不跑，
+  # 本地改完前端请务必跑一遍：cd buketang && python tests/ui_check.py

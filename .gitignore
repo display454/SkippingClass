@@ -1,0 +1,32 @@
+# 端侧模型（约 230MB，首次点「下载模型」后出现，可离线运行，不进版本库）
+models/
+
+# 运行数据：课堂、录音、讲义、生成结果、API Key
+buketang/data/
+mp3-transcriber/data/
+# 恢复备份时自动另存的旧数据
+restore_backups/
+
+# 发布产物
+dist/
+
+# 依赖与缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 临时产物
+*.log
+~$*
+.DS_Store
+Thumbs.db
+
+# 工具与本地的个人配置
+.workbuddy/
+.claude/
+.idea/
+.vscode/
