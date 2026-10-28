@@ -378,7 +378,7 @@ class LessonStore:
             self.update(lesson_id, status="failed", stage="执行失败", error=redact_message(exc, {"config": config.load(), "asr": config.asr_config()}))
         except Exception as exc:  # noqa: BLE001
             self.update(lesson_id, status="failed", stage="执行失败",
-                        error=f"{type(exc).__name__}: {redact_message(exc, {"config": config.load(), "asr": config.asr_config()})}")
+                        error=f"{type(exc).__name__}: {redact_message(exc, {'config': config.load(), 'asr': config.asr_config()})}")
 
     def _run(self, lesson_id: str, mode: str = "guide") -> None:
         from . import preprocess, memory, courses
