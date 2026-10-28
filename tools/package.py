@@ -47,7 +47,7 @@ SKIP_DIRS = {
 SKIP_FILES = {".DS_Store", "Thumbs.db"}
 SKIP_EXT = {".pyc", ".pyo", ".log", ".zip"}
 
-COMMON_FILES = ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", ".gitignore"]
+COMMON_FILES = ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", ".gitignore", "docs/UPGRADE_v1.1.0.md"]
 
 
 def wanted(path: Path) -> bool:
@@ -133,6 +133,7 @@ STANDALONE_FIXES: dict[str, list[tuple[str, str]]] = {
 def standalone(md: str, app: str) -> str:
     """单应用包的 README：补图片前缀，拉平跨目录链接，并把跨应用的指路改成本地说法。"""
     out = fix_links(md, app)
+    out = out.replace("](../docs/", "](docs/")
     # 仓库里 README 在子目录，写的是 ../LICENSE；打平到包根后要改成 ./LICENSE
     out = re.sub(r"\]\(\.\./([A-Za-z0-9_.-]+)\)", r"](\1)", out)
     for old, new in STANDALONE_FIXES.get(app, []):
@@ -181,7 +182,7 @@ def build_single(app: str, out: Path) -> Path:
         if readme.exists():
             add_text(zf, standalone(readme.read_text(encoding="utf-8"), app), f"{top}/README.md")
             n += 1
-        for f in ("LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md"):
+        for f in ("LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "docs/UPGRADE_v1.1.0.md"):
             src = ROOT / f
             if src.exists():
                 add_file(zf, src, f"{top}/{f}")

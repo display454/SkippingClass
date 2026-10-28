@@ -39,11 +39,18 @@ jobs:
       - name: 装依赖
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt websocket-client
 
       - name: 完整性回归（恢复迁移、配置继承、分段边界）
         working-directory: buketang
         run: python tests/test_integrity.py
+
+      - name: 新版功能与安全回归
+        working-directory: buketang
+        run: python tests/test_update.py
+
+      - name: 离线数学与富文本安全
+        run: node tools/test_richtext.cjs
 
       - name: 语音转录工坊自检（演示模式走真链路）
         working-directory: mp3-transcriber
@@ -52,6 +59,11 @@ jobs:
       - name: 不听课离线端到端自检
         working-directory: buketang
         run: python tests/e2e_offline.py
+
+      - name: 新版真实浏览器验收
+        if: matrix.python == '3.12'
+        working-directory: buketang
+        run: python tests/ui_update.py
 
   # 发布链路：打三个包，再逐个解压、起服务、打接口
   package:

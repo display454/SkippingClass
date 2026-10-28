@@ -13,6 +13,7 @@ import json
 import threading
 import time
 import uuid
+from shared.storage import write_json
 from typing import Any
 
 from . import config
@@ -46,10 +47,7 @@ class CourseStore:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps({"courses": self._items}, ensure_ascii=False, indent=1),
-            encoding="utf-8",
-        )
+        write_json(self._path, {"courses": self._items})
 
     def reload(self) -> None:
         """从磁盘重新读取（恢复备份后调用）。"""
@@ -96,6 +94,10 @@ class CourseStore:
                     if key == "name" and not value:
                         continue
                     course[key] = value
+            if "memory_enabled" in patch:
+                course["memory_enabled"] = bool(patch["memory_enabled"])
+            if isinstance(patch.get("memory_notes"), str):
+                course["memory_notes"] = patch["memory_notes"][:4000]
             self._save()
             return dict(course)
 

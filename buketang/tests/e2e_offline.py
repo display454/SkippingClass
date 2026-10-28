@@ -303,8 +303,11 @@ def main() -> int:
     globals()["_fake_payload"] = _fake_payload
     patch_llm()
 
+    for i, point in enumerate(_fake_payload.get("key_points", [])[:3]):
+        point["illustration_pages"] = [i + 1]
     store._transcribe_all = lambda lesson_id, cfg: fake_segments  # type: ignore[assignment]
 
+    config.save({"guide": {"preprocess": False}})
     store._run(lid)
     lesson = store.get(lid)
     check("流水线状态为已完成", lesson["status"] == "done",
@@ -337,7 +340,7 @@ def main() -> int:
 
     print("\n[5/6] 校验产物与截图")
     guides = lesson["guides"]
-    out_dir = store.outputs_dir(lid)
+    out_dir = Path(guides["detailed_md"]).parent
     for key in ("extreme_md", "detailed_md", "extreme_docx", "detailed_docx"):
         check(f"{key} 已生成", bool(guides.get(key)) and Path(guides[key]).exists())
 

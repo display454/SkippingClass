@@ -12,6 +12,8 @@ import copy
 import json
 import os
 import threading
+from shared.storage import write_json
+from shared.local_security import public_config, bind_endpoint
 from pathlib import Path
 from typing import Any
 
@@ -149,14 +151,14 @@ def save(patch: dict[str, Any]) -> dict[str, Any]:
         if isinstance(incoming, dict):
             for pid, vals in incoming.items():
                 if pid in cfg["providers"] and isinstance(vals, dict):
+                    previous = dict(cfg["providers"][pid])
                     for k, v in vals.items():
                         if k in cfg["providers"][pid] and v is not None:
                             cfg["providers"][pid][k] = v
+                    bind_endpoint(previous, cfg["providers"][pid], vals)
 
         cfg = _validate(cfg)
-        CONFIG_PATH.write_text(
-            json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_json(CONFIG_PATH, cfg)
         return cfg
 
 
@@ -225,11 +227,11 @@ def provider_ready(provider_id: str, cfg: dict[str, Any]) -> bool:
 
 
 def public_view(cfg: dict[str, Any]) -> dict[str, Any]:
-    out = copy.deepcopy(cfg)
+    out = public_config(cfg)
     for _pid, p in out["providers"].items():
         for key in ("api_key", "access_key"):
             if key in p:
-                p[key] = mask(p.get(key, ""))
+                p[key] = ""
     out.pop("ready", None)
     out["ready"] = provider_ready(cfg.get("provider", "volc"), cfg)
     out["ready_map"] = {pid: provider_ready(pid, cfg) for pid in cfg["providers"]}

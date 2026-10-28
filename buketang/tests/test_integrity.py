@@ -36,6 +36,7 @@ class IntegrityTests(unittest.TestCase):
         self.server.course_store.courses.reload()
         self.server.SUMMARY_JOBS.clear()
         self.client = self.server.app.test_client()
+        self.client.environ_base["HTTP_X_CSRF_TOKEN"] = self.server.app.extensions["local_security_token"]
 
     def archive(self, entries):
         buf = io.BytesIO()
@@ -47,9 +48,13 @@ class IntegrityTests(unittest.TestCase):
     def restore(self, data):
         return self.client.post("/api/restore", data={"file": (io.BytesIO(data), "backup.zip")})
 
+    def backup(self):
+        with self.client.get("/api/backup") as response:
+            return response.data
+
     def test_empty_backup_roundtrip_keeps_inheritance_and_keys(self):
         self.cfg.save({"llm": {"api_key": "local-test-secret"}})
-        backup = self.client.get("/api/backup").data
+        backup = self.backup()
         self.assertNotIn(b"local-test-secret", zipfile.ZipFile(io.BytesIO(backup)).read("config.json"))
         self.assertEqual(self.restore(backup).status_code, 200)
         self.assertEqual(self.cfg.load()["llm"]["api_key"], "local-test-secret")
@@ -80,7 +85,7 @@ class IntegrityTests(unittest.TestCase):
             audios=[{"id": "audio", "filename": "audio.wav", "path": str(self.cfg.DATA_DIR / f"lessons/{lid}/files/audio.wav")}],
             guides={"extreme_md": str(self.cfg.DATA_DIR / f"lessons/{lid}/outputs/result.md")})
         self.server.course_store.courses.set_summary(cid, {"files": {"summary_md": str(self.cfg.DATA_DIR / f"courses/{cid}/summary.md")}})
-        backup = self.client.get("/api/backup").data
+        backup = self.backup()
         for old_root in ("C:\\old-computer\\data", "/home/old-computer/data"):
             with self.subTest(old_root=old_root):
                 with zipfile.ZipFile(io.BytesIO(backup)) as archive:
@@ -115,14 +120,14 @@ class IntegrityTests(unittest.TestCase):
 
     def test_failed_restore_rolls_back(self):
         lesson = self.server.store.create("恢复失败也要保留")
-        backup = self.client.get("/api/backup").data
+        backup = self.backup()
         with patch.object(self.server, "_keep_secrets", side_effect=OSError("模拟写入失败")):
             self.assertEqual(self.restore(backup).status_code, 500)
         self.assertEqual(self.server.store.get(lesson["id"])["name"], "恢复失败也要保留")
         self.assertTrue((self.cfg.LESSON_DIR / lesson["id"] / "lesson.json").is_file())
 
     def test_restore_rejects_running_tasks(self):
-        backup = self.client.get("/api/backup").data
+        backup = self.backup()
         lesson = self.server.store.create("运行中")
         self.server.store.update(lesson["id"], status="analyzing")
         self.assertEqual(self.restore(backup).status_code, 409)

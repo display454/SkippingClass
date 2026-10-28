@@ -24,3 +24,6 @@ pywin32>=306 ; sys_platform == "win32"
 
 # 另一个端侧转写选项，按需安装：
 # faster-whisper>=1.0
+
+# Editable Word math and tables; includes the Pandoc binary.
+pypandoc_binary==1.17

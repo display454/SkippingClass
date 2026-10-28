@@ -23,7 +23,7 @@ const state = {
   pendingMode: null,
 };
 
-const RUNNING = ['parsing', 'transcribing', 'analyzing', 'rendering'];
+const RUNNING = ['parsing', 'transcribing', 'preprocessing', 'analyzing', 'rendering'];
 const PROVIDER_LABEL = {
   volc: '火山引擎 · 豆包',
   openai: 'OpenAI Whisper',
@@ -384,6 +384,7 @@ async function openLesson(id, silent = false) {
   state.course = state.courses.find(c => c.id === (d.lesson.course_id || '')) || null;
   if (changed) {
     state.contents = {};
+    if ($('#revisionSelect')) $('#revisionSelect').value = '';
     state.mode = state.pendingMode || 'extreme';
     state.pendingMode = null;
   }
@@ -408,6 +409,9 @@ function renderDetail() {
     `<button class="crumb-pick" id="crumbPick" title="归到别的课程">${caret}</button>`;
 
   $('#lessonName').textContent = l.name;
+  $('#laterMemory').checked=!!l.include_later_memory;
+  $('#imagePoint').innerHTML=((l.analysis || {}).key_points || []).map((p,i)=>`<option value="${i}">${esc(p.title)}</option>`).join('');
+  $('#formulaEvidence').textContent=(l.formula_evidence || []).map(e=>`${e.material} P${e.page}（待核对）\n${e.formulas.map(f=>f.latex+' '+f.explanation).join('\n')}`).join('\n\n');
 
   const meta = [];
   if (l.materials.length) meta.push(`讲义 ${l.materials.length} 份`);
@@ -416,6 +420,9 @@ function renderDetail() {
   if (l.points) meta.push(`${l.points} 个考点`);
   meta.push(l.status_label);
   if (l.stale) meta.push('结果待更新');
+  const chars=l.transcript_chars+(l.materials || []).reduce((sum,m)=>sum+(m.chars || 0),0);
+  if (chars) meta.push(`材料约 ${chars} 字符，按输入上限分段`);
+  if (l.last_usage?.attempts) meta.push(l.last_usage.reported ? `文本模型已报告 ${l.last_usage.total_tokens} tokens` : `文本模型 ${l.last_usage.attempts} 次尝试，用量未报告`);
   $('#lessonMeta').textContent = meta.join(' · ');
 
   $('#staleNotice').classList.toggle('hidden', !l.stale);
@@ -442,6 +449,11 @@ function renderTranscript() {
     $('#transcriptBody').textContent = '';
     $('#btnTranscript').setAttribute('aria-expanded', 'false');
   }
+  const stamp=l.id+':'+(l.raw_revision || '')+':'+(l.clean_version || '');
+  if (state.transcriptStamp !== stamp) {
+    state.transcriptStamp=stamp; state.transcriptText=null;
+    if (!$('#transcriptBody').classList.contains('hidden')) loadTranscriptView(state.transcriptView || 'raw');
+  }
   $('#transcriptMeta').textContent = '想核对老师原话时看这里';
 }
 
@@ -460,13 +472,7 @@ async function toggleTranscript() {
   body.classList.remove('hidden');
   btn.setAttribute('aria-expanded', 'true');
 
-  if (state.transcriptText === null) {
-    body.textContent = '加载中…';
-    const d = await api(`/api/lessons/${l.id}/transcript`);
-    state.transcriptText = d.ok ? (d.text || '') : (d.error || '读取失败');
-    if (!state.transcriptText) state.transcriptText = '这堂课还没有转录文本';
-  }
-  body.innerHTML = transcriptHtml(state.transcriptText);
+  await loadTranscriptView(state.transcriptView || 'raw');
 }
 
 /* 转录稿是「[00:12:34] 正文」格式，把时间戳拆出来单独排，
@@ -488,6 +494,7 @@ function renderRunPanel() {
   const btn = $('#btnRun');
   const cancel = $('#btnCancel');
   const running = RUNNING.includes(l.status);
+  ['btnTranscribe','btnPreprocess','btnExport','btnOrder','btnFormulaEvidence'].forEach(id => $('#'+id).disabled=running);
 
   if (running) {
     panel.classList.remove('hidden');
@@ -657,6 +664,14 @@ function renderResult() {
   }
   box.classList.remove('hidden');
 
+  const selected = $('#revisionSelect');
+  const signature = l.id + ':' + l.current_revision + ':' + (l.history || []).map(x=>x.id).join(',');
+  if (selected.dataset.signature !== signature) {
+    selected.dataset.signature = signature;
+    state.contents={}; $('#resultBody').dataset.key='';
+    selected.innerHTML = '<option value="">当前版本</option>' + (l.history || []).slice().reverse()
+      .map((x,i)=>`<option value="${esc(x.id)}">历史版本 ${l.history.length-i}</option>`).join('');
+  }
   const has = m => l.guides.includes(`${m}_md`);
   $$('#modeTabs button').forEach(b => {
     const ok = has(b.dataset.mode);
@@ -670,7 +685,7 @@ function renderResult() {
 
   const formats = ['md', 'docx'].filter(f => l.guides.includes(`${state.mode}_${f}`));
   $('#dlGroup').innerHTML = formats.map(f => `
-    <a class="btn btn-line btn-sm" href="/api/lessons/${l.id}/download/${state.mode}/${f}">
+    <a class="btn btn-line btn-sm" href="/api/lessons/${l.id}/download/${state.mode}/${f}?revision=${encodeURIComponent($('#revisionSelect').value)}">
       ${DL_ICON}${f === 'md' ? 'Markdown' : 'Word'}
     </a>`).join('');
 
@@ -681,22 +696,24 @@ async function loadPreview() {
   const l = state.lesson;
   if (!l) return;
   const box = $('#resultBody');
+  const requestedMode=state.mode, requestedRevision=$('#revisionSelect').value;
 
   if (state.contents[state.mode] !== undefined) {
     box.innerHTML = mdToHtml(state.contents[state.mode], l.id);
     return;
   }
 
-  const key = `${l.id}:${state.mode}`;
+  const key = `${l.id}:${state.mode}:${$('#revisionSelect').value}`;
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.innerHTML = '<p class="empty-tip sm">加载中…</p>';
 
-  const d = await api(`/api/lessons/${l.id}/preview?mode=${state.mode}`);
+  const d = await api(`/api/lessons/${l.id}/preview?mode=${state.mode}&revision=${encodeURIComponent($('#revisionSelect').value)}`);
   if (!d.ok) {
     box.innerHTML = `<p class="empty-tip sm">${esc(d.error || '该版本还没有生成')}</p>`;
     return;
   }
+  if (state.lesson?.id !== l.id || state.mode !== requestedMode || $('#revisionSelect').value !== requestedRevision) return;
   state.contents[state.mode] = d.content || '';
   if (state.lesson && state.lesson.id === l.id && state.mode === d.mode) {
     box.innerHTML = mdToHtml(d.content || '', l.id);
@@ -721,108 +738,7 @@ function inlineHtml(text, lessonId) {
 }
 
 function mdToHtml(md, lessonId) {
-  const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
-  const out = [];
-  let inFront = false, frontDone = false;
-  let list = null, quote = [], para = [];
-  let i = 0;
-
-  const flushPara = () => {
-    if (para.length) { out.push(`<p>${inlineHtml(para.join(' '), lessonId)}</p>`); para = []; }
-  };
-  const flushQuote = () => {
-    if (quote.length) {
-      out.push(`<blockquote>${quote.map(q => inlineHtml(q, lessonId)).join('<br>')}</blockquote>`);
-      quote = [];
-    }
-  };
-  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  const flushAll = () => { flushPara(); flushQuote(); flushList(); };
-
-  const isRow = s => /^\|.*\|$/.test(s);
-  const isSep = s => /^\|[\s:|-]+\|$/.test(s);
-
-  while (i < lines.length) {
-    const line = lines[i].trim();
-    i += 1;
-
-    if (!frontDone && line === '---') {
-      if (!inFront) { inFront = true; continue; }
-      inFront = false; frontDone = true; continue;
-    }
-    if (inFront) continue;
-
-    if (!line) { flushAll(); continue; }
-
-    // 表格
-    if (isRow(line) && i < lines.length && isSep(lines[i].trim())) {
-      flushAll();
-      const cells = s => s.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-      const head = cells(line);
-      i += 1;
-      const rows = [];
-      while (i < lines.length && isRow(lines[i].trim())) {
-        rows.push(cells(lines[i].trim()));
-        i += 1;
-      }
-      out.push(
-        '<table><thead><tr>' +
-        head.map(h => `<th>${inlineHtml(h, lessonId)}</th>`).join('') +
-        '</tr></thead><tbody>' +
-        rows.map(r => '<tr>' + r.map(c => `<td>${inlineHtml(c, lessonId)}</td>`).join('') + '</tr>').join('') +
-        '</tbody></table>'
-      );
-      continue;
-    }
-
-    if (line.startsWith('### ')) { flushAll(); out.push(`<h3>${inlineHtml(line.slice(4), lessonId)}</h3>`); continue; }
-    if (line.startsWith('## ')) { flushAll(); out.push(`<h2>${inlineHtml(line.slice(3), lessonId)}</h2>`); continue; }
-    if (line.startsWith('# ')) { flushAll(); out.push(`<h1>${inlineHtml(line.slice(2), lessonId)}</h1>`); continue; }
-
-    if (line.startsWith('> ')) { flushPara(); flushList(); quote.push(line.slice(2)); continue; }
-
-    const imgOnly = line.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
-    if (imgOnly) {
-      flushAll();
-      let url = imgOnly[2];
-      if (!/^(https?:)?\/\//.test(url) && !url.startsWith('/')) {
-        url = `/api/lessons/${lessonId}/asset/${url}`;
-      }
-      out.push(`<figure><img src="${esc(url)}" alt="${esc(imgOnly[1])}" loading="lazy">` +
-        `<figcaption>${esc(imgOnly[1])}</figcaption></figure>`);
-      continue;
-    }
-
-    if (/^[-*] /.test(line)) {
-      flushPara(); flushQuote();
-      if (list !== 'ul') { flushList(); out.push('<ul>'); list = 'ul'; }
-      out.push(`<li>${inlineHtml(line.slice(2), lessonId)}</li>`);
-      continue;
-    }
-    if (/^\d+\.\s/.test(line)) {
-      flushPara(); flushQuote();
-      if (list !== 'ol') { flushList(); out.push('<ol>'); list = 'ol'; }
-      out.push(`<li>${inlineHtml(line.replace(/^\d+\.\s+/, ''), lessonId)}</li>`);
-      continue;
-    }
-
-    // 缩进的续行并入上一条列表项
-    if (/^\s{2,}/.test(lines[i - 1] || '') && list && out.length) {
-      const last = out[out.length - 1];
-      if (last.startsWith('<li>')) {
-        out[out.length - 1] = last.replace(/<\/li>$/, '<br>' + inlineHtml(line, lessonId) + '</li>');
-        continue;
-      }
-    }
-
-    if (/^[-*_]{3,}$/.test(line)) { flushAll(); out.push('<hr>'); continue; }
-
-    flushList(); flushQuote();
-    para.push(line);
-  }
-
-  flushAll();
-  return out.join('');
+  return RichText.render(md, lessonId, document.querySelector('#revisionSelect')?.value || '');
 }
 
 /* ---------------- 上传 ---------------- */
@@ -880,8 +796,8 @@ async function runLesson(force = false) {
 
   if (l.guides && l.guides.length && !force) {
     const ok = await confirmDialog(
-      '重新分析会覆盖现有结果',
-      '已经生成的极限版和详细版会被替换。材料没变的话没必要重跑。',
+      '生成一个新的复习版本',
+      '新版本成功后才切换，旧版本仍可查看；失败或取消不影响原来的结果。',
       '重新分析'
     );
     if (!ok) return;
@@ -930,7 +846,11 @@ function startPolling() {
       stopPolling();
       if (d.lesson.status === 'done') {
         state.contents = {};
-        toast('复习指导已生成', 'ok');
+        toast(d.lesson.stage || '处理完成', 'ok');
+        loadAll(d.lesson.id);
+      } else if (d.lesson.status === 'draft') {
+        state.transcriptText = null;
+        toast(d.lesson.stage || '处理完成', 'ok');
         loadAll(d.lesson.id);
       } else if (d.lesson.status === 'canceled') {
         toast('已停止');
@@ -966,6 +886,9 @@ function renderCourseView() {
   if (!c) return;
 
   $('#courseName').textContent = c.name;
+  $('#memoryEnabled').checked = c.memory_enabled !== false;
+  if (document.activeElement !== $('#memoryNotes')) $('#memoryNotes').value = c.memory_notes || '';
+  $('#memorySources').classList.add('hidden');
 
   const meta = [];
   if (c.term) meta.push(c.term);
@@ -1134,8 +1057,12 @@ async function loadConfig() {
   });
 
   $('#llmBase').value = cfg.llm.base_url || '';
-  $('#llmKey').value = cfg.llm.api_key || '';
+  $('#llmKey').value = '';
+  $('#llmKey').placeholder = cfg.llm.has_api_key ? '已保存，留空保持；更换接口需重新填写' : '填写 API Key';
   $('#llmModel').value = cfg.llm.model || '';
+  $('#visionModel').value = cfg.llm.vision_model || '';
+  $('#llmInputBudget').value=cfg.llm.input_chars || 24000;
+  $('#llmOutputTokens').value=cfg.llm.max_tokens || 8000;
 
   const active = (cfg.presets || []).find(p => p.id === cfg.llm.preset);
   const hint = active ? (active.hint || '').replace(/^模型填\s*/, '') : '控制台的模型 ID';
@@ -1148,6 +1075,8 @@ async function loadConfig() {
   $('#summaryTop').value = cfg.guide.summary_top || 15;
   $('#summaryTopVal').textContent = `${$('#summaryTop').value} 条`;
   $('#withShots').checked = cfg.guide.detailed_with_shots !== false;
+  $('#maxShots').value = cfg.guide.max_shots ?? 3;
+  $('#autoPreprocess').checked = cfg.guide.preprocess !== false;
 
   renderAsrOptions(cfg);
 }
@@ -1320,11 +1249,14 @@ async function saveConfig() {
       base_url: $('#llmBase').value.trim(),
       api_key: $('#llmKey').value.trim(),
       model: $('#llmModel').value.trim(),
+      vision_model: $('#visionModel').value.trim(),
+      input_chars: Number($('#llmInputBudget').value), max_tokens:Number($('#llmOutputTokens').value),
     },
     guide: {
       extreme_max_points: Number($('#maxPoints').value),
       summary_top: Number($('#summaryTop').value),
       detailed_with_shots: $('#withShots').checked,
+      max_shots: Number($('#maxShots').value), preprocess: $('#autoPreprocess').checked,
     },
     asr: { provider: asrProvider },
   };
@@ -1759,6 +1691,7 @@ function bind() {
 
 async function init() {
   bind();
+  bindUpdateFeatures();
 
   const want = new URLSearchParams(location.search).get('mode');
   if (want === 'detailed' || want === 'extreme') state.pendingMode = want;
@@ -1774,6 +1707,8 @@ async function init() {
   await loadAll();
 
   if (!state.lessons.length) showWelcome();
+  const requestedLesson=new URLSearchParams(location.search).get('lesson');
+  if (requestedLesson && state.lessons.some(l=>l.id===requestedLesson)) await openLesson(requestedLesson);
 
   // 没配大模型时只提示，不自动弹抽屉——首次打开就抢走焦点很讨厌
   const needSetup = !!state.config && !state.config.llm_ready;
@@ -1781,3 +1716,128 @@ async function init() {
 }
 
 init();
+
+
+async function loadTranscriptView(view) {
+  const l=state.lesson; if (!l) return;
+  const d=await api(`/api/lessons/${l.id}/transcript?view=${view}`);
+  if (!d.ok) { toast(d.error,'err'); return; }
+  state.transcriptView=view; state.transcriptVersion=d.version; state.transcriptText=d.text || '';
+  const body=$('#transcriptBody'); body.classList.remove('hidden'); $('#btnTranscript').setAttribute('aria-expanded','true');
+  if (!d.segments?.length) { body.innerHTML=transcriptHtml(d.text || (view==='raw'?'暂无转录':'暂无内容，先筛选逐字稿')); return; }
+  body.innerHTML=d.segments.map(item=>`<div class="t-line" data-segment="${esc(item.id)}">
+    <span class="t-ts">${fmtDur(item.start)}${item.estimated_time?' 估算':''}</span>
+    <span class="t-txt">${esc(view==='raw'?item.text:(item.edited_text ?? item.text))}<small class="t-reason">${esc(item.reason || '')}</small></span>
+    <span class="segment-actions"><button class="btn btn-line btn-sm" data-segment-toggle="${esc(item.id)}" data-keep="${!item.keep}">${item.keep?'从净化稿剔除':'恢复'}</button>
+    <button class="btn btn-line btn-sm" data-segment-edit="${esc(item.id)}">修订文字</button></span></div>`).join('');
+  state.transcriptRows=d.segments;
+}
+
+function bindUpdateFeatures() {
+  $('#batchFiles').onchange=()=>{
+    const files=[...$('#batchFiles').files];
+    $('#batchRows').innerHTML=files.map((file,i)=>{
+      const name=file.name.replace(/\.[^.]+$/,'').replace(/[_ -](录音|音频|讲义|课件)$/,'');
+      return `<label class="batch-row"><span>${esc(file.name)}</span><input data-batch-group="${i}" value="${esc(name)}" placeholder="课堂名称"></label>`;
+    }).join('');
+  };
+  $('#btnBatchImport').onclick=async()=>{
+    const course=state.course; if (!course) return;
+    const files=[...$('#batchFiles').files];
+    if (!files.length || files.length>50) { toast('每次选择 1 至 50 个文件','err'); return; }
+    const groups=new Map();
+    for (let i=0;i<files.length;i++) {
+      const name=$(`[data-batch-group="${i}"]`).value.trim();
+      if (!name) { toast('请为每个文件填写课堂名称','err'); return; }
+      if (!groups.has(name)) groups.set(name,[]);
+      groups.get(name).push(files[i]);
+    }
+    const controls=$$('#batchImport input,#batchImport button'); controls.forEach(el=>el.disabled=true);
+    let completed=0;
+    try {
+      for (const [name,entries] of groups) {
+        $('#batchProgress').textContent=`正在导入 ${completed+1}/${groups.size}：${name}`;
+        const created=await api('/api/lessons',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,course_id:course.id})});
+        if (!created.ok) throw new Error(created.error || '建课失败');
+        for (const kind of ['materials','audios']) {
+          const selected=entries.filter(file=>/\.(pdf|ppt|pptx|doc|docx|md|txt)$/i.test(file.name)===(kind==='materials'));
+          if (!selected.length) continue;
+          const form=new FormData(); selected.forEach(file=>form.append('files',file));
+          const uploaded=await api(`/api/lessons/${created.lesson.id}/${kind}`,{method:'POST',body:form});
+          if (!uploaded.ok || uploaded.rejected?.length) throw new Error(uploaded.error || uploaded.rejected?.[0]?.reason || '上传失败');
+        }
+        completed++;
+      }
+      $('#batchProgress').textContent=`已导入 ${completed} 堂课，可逐堂核对后开始分析。`;
+      $('#batchFiles').value=''; $('#batchRows').textContent='';
+    } catch(error) { $('#batchProgress').textContent=`已完整导入 ${completed} 堂课；当前课堂保留已收到的文件。${error.message}`; }
+    finally { controls.forEach(el=>el.disabled=false); await loadAll(); if (state.course?.id===course.id) await openCourse(course.id); }
+  };
+  $('#btnAddImage').onclick=async()=>{
+    if (!state.lesson) return;
+    const d=await api(`/api/lessons/${state.lesson.id}/images/add`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:$('#imageUrl').value.trim(),caption:$('#imageCaption').value.trim(),point:Number($('#imagePoint').value)})});
+    if (!d.ok) { toast(d.error,'err'); return; }
+    const exported=await api(`/api/lessons/${state.lesson.id}/export`,{method:'POST'});
+    if (!exported.ok) { toast(exported.error,'err'); return; }
+    $('#imageUrl').value=''; $('#imageCaption').value='';
+    await openLesson(state.lesson.id); startPolling();
+  };
+  $('#btnFormulaEvidence').onclick=async()=>{
+    if (!state.lesson) return;
+    const pages=$('#formulaPages').value.split(/[,，\s]+/).filter(Boolean).map(Number);
+    const d=await api(`/api/lessons/${state.lesson.id}/formulas/recognize`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pages})});
+    if (!d.ok) { toast(d.error,'err'); return; }
+    await openLesson(state.lesson.id); startPolling();
+  };
+  for (const [id,stage] of [['btnTranscribe','transcribe'],['btnPreprocess','preprocess'],['btnExport','export']]) {
+    $('#'+id).onclick=async()=>{
+      if (!state.lesson) return;
+      const d=await api(`/api/lessons/${state.lesson.id}/${stage}`,{method:'POST'});
+      if (!d.ok) { toast(d.error,'err'); return; }
+      state.transcriptText=null; await openLesson(state.lesson.id); startPolling();
+    };
+  }
+  $('#laterMemory').onchange=async()=>{
+    if (!state.lesson) return;
+    const d=await api(`/api/lessons/${state.lesson.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({include_later_memory:$('#laterMemory').checked})});
+    if (!d.ok) toast(d.error,'err');
+  };
+  document.addEventListener('click',async event=>{
+    const button=event.target.closest('[data-cache-image]');
+    if (!button || !state.lesson) return;
+    button.disabled=true;
+    const d=await api(`/api/lessons/${state.lesson.id}/images/cache`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:button.dataset.cacheImage})});
+    toast(d.ok ? d.message : d.error,d.ok?'ok':'err'); button.disabled=false;
+  });
+  $('#btnOrder').onclick=async()=>{
+    const l=state.lesson; if (!l) return;
+    const value=prompt('本课程中的授课顺序（正整数）',l.sequence || 1); if (value===null) return;
+    const d=await api(`/api/lessons/${l.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({sequence:Number(value)})});
+    if (!d.ok) toast(d.error,'err'); else { toast('课次已更新'); await openLesson(l.id); }
+  };
+  $$('[data-transcript-view]').forEach(button=>button.onclick=()=>loadTranscriptView(button.dataset.transcriptView));
+  $('#btnTranscriptDownload').onclick=()=>{ if (state.lesson) location.href=`/api/lessons/${state.lesson.id}/transcript/download?view=${state.transcriptView || 'raw'}`; };
+  $('#btnTranscriptJson').onclick=()=>{ if (state.lesson) location.href=`/api/lessons/${state.lesson.id}/transcript/download?format=json`; };
+  $('#transcriptBody').addEventListener('click',async event=>{
+    const button=event.target.closest('[data-segment-toggle],[data-segment-edit]'); if (!button || !state.lesson) return;
+    const id=button.dataset.segmentToggle || button.dataset.segmentEdit;
+    const data={version:state.transcriptVersion || ''};
+    if (button.dataset.segmentToggle) data.keep=button.dataset.keep==='true';
+    else { const row=state.transcriptRows.find(x=>x.id===id); const value=prompt('修订仅影响净化稿，原文保留',row.edited_text ?? row.text); if (value===null) return; data.text=value; }
+    const d=await api(`/api/lessons/${state.lesson.id}/transcript/segments/${encodeURIComponent(id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if (!d.ok) toast(d.error,'err'); else { await loadTranscriptView(state.transcriptView || 'raw'); await openLesson(state.lesson.id,true); }
+  });
+  $('#revisionSelect').onchange=()=>{ state.contents={}; $('#resultBody').dataset.key=''; renderResult(); };
+  $('#btnSaveMemory').onclick=async()=>{
+    const c=state.course; if (!c) return;
+    const d=await api(`/api/courses/${c.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({memory_enabled:$('#memoryEnabled').checked,memory_notes:$('#memoryNotes').value})});
+    if (!d.ok) toast(d.error,'err'); else { Object.assign(c,d.course); toast('课程记忆设置已保存'); }
+  };
+  $('#btnViewMemory').onclick=async()=>{
+    if (!state.course) return;
+    const d=await api(`/api/courses/${state.course.id}/memory`);
+    if (!d.ok) { toast(d.error,'err'); return; }
+    const box=$('#memorySources'); box.classList.remove('hidden');
+    box.textContent=d.memory.entries.map(e=>`《${e.lesson_name}》 ${e.title}\n${e.detail}\n来源：P${e.pages.join('、P')} ${e.timestamp}`).join('\n\n') || '尚无有出处的课程记忆，生成指导后自动更新。';
+  };
+}

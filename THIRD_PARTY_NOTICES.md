@@ -15,6 +15,8 @@
 | PyMuPDF | ≥1.24 | **AGPL-3.0** 或 Artifex 商业授权 | 讲义转 PDF、按页渲染截图 |
 | sherpa-onnx | ≥2.0 | Apache-2.0 | 端侧 SenseVoice / VAD 推理 |
 | NumPy | ≥1.24 | BSD-3-Clause | 端侧音频采样数据处理 |
+| pypandoc_binary | 1.17 | Python 包 MIT；所含 Pandoc 另依 GPL-2.0-or-later | 由 pip 安装的跨平台 Word 转换组件 |
+| Pandoc | 以 pypandoc_binary 提供的版本为准 | GPL-2.0-or-later，含附属组件许可 | Markdown 数学转换为 Word OMML；许可文本见安装包内 `pypandoc/files/COPYRIGHT.txt` |
 | psutil | ≥5.9 | BSD-3-Clause | 按本机内存建议本地模型的尺寸 |
 | pywin32 | ≥306（仅 Windows） | PSF | 调本机 Office 把 PPT / Word 转 PDF |
 | faster-whisper | ≥1.0 | MIT | 可选的另一个端侧引擎（默认不装） |
@@ -38,9 +40,9 @@
 
 ## 前端
 
-没有任何第三方库：没有 React / Vue / jQuery / Tailwind，没有 CDN 引用，没有构建步骤。
+随包包含 **KaTeX 0.19.1** 与 **markdown-it 14.1.0**（均 MIT）。原始许可保留在 `shared/web/vendor/`；KaTeX 数学字体随上游包提供。浏览器脚本和字体走本地静态资源，不需要 CDN 或前端构建步骤。
 
-字体用的是系统已有的字体栈（`-apple-system` / `Segoe UI` / `Microsoft YaHei UI` / `Noto Serif CJK SC` 等），**没有打包任何 webfont**，因此不涉及字体授权。
+界面正文使用系统字体栈（`-apple-system` / `Segoe UI` / `Microsoft YaHei UI` / `Noto Serif CJK SC` 等）；数学公式使用随 KaTeX 分发的字体与样式。
 
 ## 示例与截图
 

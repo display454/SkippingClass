@@ -1,5 +1,7 @@
 # 不听课 · SkippingClass
 
+本分支候选版本为 **v1.1.0-rc.1**：新增可导出的净化逐字稿、可编辑 Word 公式与表格、课程记忆及历史指导。使用与升级见 [v1.1.0 说明](docs/UPGRADE_v1.1.0.md)，已正式发布的版本以 Releases 为准。
+
 两个在**自己电脑上跑**的小应用，一套共用的语音识别层。都只监听 `127.0.0.1`，不联网也能用（端侧模式）。
 
 | 应用 | 一句话 | 端口 |
@@ -67,7 +69,7 @@ FFmpeg 有没有装好，页面上会直接显示，不用猜。
 | 讲义 → 复习指导 | 一个 OpenAI 兼容的大模型 Key（DeepSeek / 通义 / Kimi 都行），或本机 **Ollama** |
 | 只想看看界面 | 「演示模式」，不联网、不花钱，产物结构真实 |
 
-全端侧组合（SenseVoice + Ollama）：**一个字都不出本机**。
+使用 SenseVoice + 本机 Ollama，且不启用云端视觉模型或加载外链图片时，录音与讲义内容可留在本机处理。
 
 ---
 
@@ -152,7 +154,7 @@ SkippingClass/
 - 讲义、录音、生成结果全部落在本机 `data/` 目录
 - 语音：默认可以走端侧 SenseVoice；只有你主动选云端引擎时音频才会传给那一家
 - 文本：只有你主动配了大模型 Key 才会把讲义内容发出去；Ollama 则是本机推理
-- Key 只写入本机 `data/config.json`，页面显示掩码；备份包默认剥离 Key
+- Key 只写入本机 `data/config.json`，配置接口只返回是否已保存；备份默认剥离 Key，恢复不导入连接设置
 - 没有任何统计、上报、遥测
 
 ---
@@ -166,6 +168,8 @@ SkippingClass/
 cd buketang
 python tests/e2e_offline.py     # 离线全链路：造讲义 + 静音音频 + 伪造模型返回
 python tests/test_integrity.py  # 备份跨系统迁移、恢复回滚、配置继承和分段边界
+python tests/test_update.py     # 净化稿、凭证保护、版本、记忆、Word 公式与表格
+python tests/ui_update.py       # 新版真实浏览器交互
 python tests/ui_check.py        # 98 项交互验收（自动起服务、自动造演示数据）
 python tests/asr_local.py       # 14 项端侧转写（需已下载 SenseVoice 模型）
 
@@ -202,7 +206,7 @@ python tests/shots.py http://127.0.0.1:8759/ assets/screenshots
 
 ## 六、版本
 
-当前 **v1.0.0**。更新记录见 [CHANGELOG.md](CHANGELOG.md)，版本号单一来源在 `shared/version.py`，两个应用的页脚和 `/api/health` 都读它。
+当前源码 **v1.1.0-rc.1**。更新记录见 [CHANGELOG.md](CHANGELOG.md)，版本号单一来源在 `shared/version.py`，两个应用的页脚和 `/api/health` 都读它。
 
 ---
 

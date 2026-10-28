@@ -24,3 +24,6 @@ psutil>=5.9
 
 # 大模型走 OpenAI 兼容协议（豆包 / DeepSeek / 通义 / OpenAI，
 # 或本机 Ollama / LM Studio），只依赖 requests，不需要额外 SDK。
+
+# Editable Word math and tables; includes the Pandoc binary.
+pypandoc_binary==1.17

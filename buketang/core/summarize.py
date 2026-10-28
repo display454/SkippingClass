@@ -23,7 +23,8 @@ from typing import Any
 from docx import Document
 from docx.shared import Pt, RGBColor
 
-from .compose import _heading, _kv_line, _set_font, _level_text, stars
+from .compose import _heading, _kv_line, _set_font, _level_text, stars, _rich_blocks
+from shared.document import write_docx
 
 INK = RGBColor(0x2B, 0x24, 0x1C)
 INK_SOFT = RGBColor(0x6B, 0x5D, 0x4F)
@@ -84,11 +85,17 @@ def collect(lessons: list[dict], threshold: float = 0.62) -> list[dict]:
                     "importance": int(kp.get("importance") or 3),
                     "exam_hint": (kp.get("exam_hint") or "").strip(),
                     "sources": [name],
+                    "source_ids": [lesson["id"]],
+                    "formulas": kp.get("formulas", []),
+                    "tables": kp.get("tables", []),
+                    "images": [],
                 })
                 continue
 
             if name not in hit["sources"]:
                 hit["sources"].append(name)
+            if lesson["id"] not in hit["source_ids"]:
+                hit["source_ids"].append(lesson["id"])
             hit["importance"] = max(hit["importance"], int(kp.get("importance") or 3))
             detail = (kp.get("detail") or "").strip()
             if len(detail) > len(hit["detail"]):
@@ -99,7 +106,7 @@ def collect(lessons: list[dict], threshold: float = 0.62) -> list[dict]:
                 hit["type"] = kp["type"]
 
     for item in merged:
-        item["count"] = len(item["sources"])
+        item["count"] = len(item["source_ids"])
 
     merged.sort(key=lambda x: (-x["count"], -x["importance"], -len(x["detail"])))
     return merged
@@ -261,6 +268,7 @@ def _md_point(p: dict, idx: int, hint: bool = True) -> list[str]:
     lines += [f"*{' · '.join(meta)}*", ""]
     if hint and p.get("exam_hint"):
         lines += [f"- **可能考法**：{p['exam_hint']}", ""]
+    lines.extend(_rich_blocks(p))
     return lines
 
 
@@ -402,7 +410,7 @@ def _docx_point(doc: Document, item: dict, idx: int, hint: bool = True) -> None:
 def build_summary(course: dict, lessons: list[dict], out_dir: Path,
                   options: dict | None = None) -> dict[str, str]:
     done = [l for l in lessons
-            if l.get("status") == "done" and (l.get("analysis") or {}).get("key_points")]
+            if l.get("guides") and (l.get("analysis") or {}).get("key_points")]
     if not done:
         raise SummarizeError("这门课下还没有分析完成的课堂，先去把课跑完")
 
@@ -415,6 +423,7 @@ def build_summary(course: dict, lessons: list[dict], out_dir: Path,
     md_path = out_dir / "期末总复习.md"
     md_path.write_text(md, encoding="utf-8")
 
-    docx_path = render_summary_docx(out_dir / "期末总复习.docx", course, done, points, options)
+    docx_path = out_dir / "期末总复习.docx"
+    write_docx(md, docx_path, out_dir)
 
     return {"summary_md": str(md_path), "summary_docx": str(docx_path)}

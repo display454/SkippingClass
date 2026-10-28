@@ -86,6 +86,7 @@ def _office_com_to_pdf(src: str | Path, dst: str | Path) -> bool:
         if ext in PPT_EXT:
             app = win32.DispatchEx("PowerPoint.Application")
             try:
+                app.AutomationSecurity = 3  # msoAutomationSecurityForceDisable
                 pres = None
                 for with_window in (False, True):   # 有些版本不接受 WithWindow=False
                     try:
@@ -105,9 +106,10 @@ def _office_com_to_pdf(src: str | Path, dst: str | Path) -> bool:
         elif ext in DOC_EXT:
             app = win32.DispatchEx("Word.Application")
             try:
+                app.AutomationSecurity = 3
                 app.Visible = False
                 app.DisplayAlerts = 0
-                doc = app.Documents.Open(src_abs, ReadOnly=True, AddToRecentFiles=False)
+                doc = app.Documents.Open(src_abs, ReadOnly=True, AddToRecentFiles=False, UpdateLinks=0)
                 doc.SaveAs(dst_abs, FileFormat=17)  # wdFormatPDF
                 doc.Close(False)
             finally:

@@ -22,12 +22,6 @@ if [ ! -x "$VPY" ]; then
   "$PY" -m venv .venv
 fi
 
-if [ ! -f .venv/.deps-ready ]; then
-  echo "[2/2] 安装依赖，第一次可能要几分钟 ..."
-  "$VPY" -m pip install -q --upgrade pip
-  "$VPY" -m pip install -q -r requirements.txt ||
-    "$VPY" -m pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-  touch .venv/.deps-ready
-fi
+"$VPY" "shared/bootstrap.py" requirements.txt
 
 exec "$VPY" mp3-transcriber/app.py
