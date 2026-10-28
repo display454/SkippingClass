@@ -138,6 +138,14 @@ class LessonStore:
                     data["progress"] = 0
                 self._lessons[data["id"]] = data
 
+        # Give legacy courses a stable, editable sequence before mixed old/new lessons are sorted.
+        groups = {}
+        for lesson in self._lessons.values():
+            groups.setdefault(lesson.get("course_id", ""), []).append(lesson)
+        for lessons in groups.values():
+            for position, lesson in enumerate(sorted(lessons, key=lambda item: (item.get("created", 0), item["id"])), 1):
+                lesson.setdefault("sequence", position)
+
     def save(self, lesson: dict) -> None:
         with self._lock:
             lesson["updated"] = time.time()

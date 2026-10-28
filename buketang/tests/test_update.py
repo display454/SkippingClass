@@ -287,6 +287,15 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue((self.config.LESSON_DIR / lesson["id"] / "lesson.json").is_file())
         self.assertIsNotNone(self.store.get(lesson["id"]))
 
+    def test_legacy_lessons_receive_stable_course_sequence(self):
+        first = self.store.create("first")
+        second = self.store.create("second")
+        self.store.update(first["id"], course_id="course", created=1)
+        self.store.update(second["id"], course_id="course", created=2)
+        self.store.reload()
+        self.assertEqual(self.store.get(first["id"])["sequence"], 1)
+        self.assertEqual(self.store.get(second["id"])["sequence"], 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
