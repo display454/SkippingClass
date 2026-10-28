@@ -9,6 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import re
+import shutil
+from shared.document import write_docx
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -25,7 +28,7 @@ def stars(n: int) -> str:
 
 
 def _level_text(n: int) -> str:
-    return {5: "必考", 4: "重点", 3: "掌握", 2: "理解", 1: "了解"}.get(int(n), "掌握")
+    return {5: "核心", 4: "重点", 3: "掌握", 2: "理解", 1: "了解"}.get(int(n), "掌握")
 
 
 # ---------------- 选取 ----------------
@@ -47,7 +50,7 @@ def pick_extreme(analysis: dict, max_points: int = 12) -> list[dict]:
 
 def _md_header(title: str, lesson_name: str, mode: str, analysis: dict) -> list[str]:
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    badge = "极限版 · 只留必考" if mode == "extreme" else "详细版 · 全量整理"
+    badge = "极限版 · 核心考点" if mode == "extreme" else "详细版 · 全量整理"
     lines = [
         "---",
         f'title: "{lesson_name} · {badge}"',
@@ -72,7 +75,7 @@ def _md_point(kp: dict, idx: int, with_hint: bool = True) -> list[str]:
 
     meta = []
     if kp.get("pages"):
-        meta.append("讲义 " + "、".join(f"P{p}" for p in kp["pages"]))
+        meta.append("讲义 " + "、".join(f"[P{p}](source:{p})" for p in kp["pages"]))
     if kp.get("timestamp"):
         meta.append(f"录音 {kp['timestamp']}")
     if kp.get("type"):
@@ -82,7 +85,40 @@ def _md_point(kp: dict, idx: int, with_hint: bool = True) -> list[str]:
 
     if with_hint and kp.get("exam_hint"):
         lines += [f"- **可能考法**：{kp['exam_hint']}"]
+    lines.extend(_rich_blocks(kp))
     lines.append("")
+    return lines
+
+
+def _rich_blocks(point: dict) -> list[str]:
+    lines = []
+    for formula in point.get("formulas", []):
+        latex = formula.get("latex", "").strip().strip("$")
+        lines += ["", "$$", latex, "$$", ""]
+        if formula.get("explanation"):
+            lines += [formula["explanation"], ""]
+        if formula.get("conditions"):
+            lines += ["适用条件：" + formula["conditions"], ""]
+        sources = [f"[P{page}](source:{page})" for page in formula.get("pages", [])]
+        if formula.get("timestamp"):
+            sources.append(formula["timestamp"])
+        lines += ["公式依据：" + ("、".join(sources) or "待补充来源") +
+                  ("（待核对）" if formula.get("needs_review") else "（请与原材料核对）"), ""]
+    def cell(value):
+        return str(value).replace("|", "\\|").replace("\n", " ")
+    for table in point.get("tables", []):
+        columns = table.get("columns", [])
+        if not columns:
+            continue
+        lines += [table.get("caption", ""), "", "| " + " | ".join(map(cell, columns)) + " |",
+                  "| " + " | ".join(["---"] * len(columns)) + " |"]
+        lines += ["| " + " | ".join(map(cell, row)) + " |" for row in table.get("rows", [])]
+        lines.append("")
+    for image in point.get("images", []):
+        caption = str(image.get("caption", "辅助图片")).replace("[", "").replace("]", "").replace("\n", " ")
+        name = image.get("cached_name", "")
+        target = "assets/external/" + name if re.fullmatch(r"[a-f0-9]{24}\.png", name) else image.get("url", "")
+        lines += [f"![{caption}](<{target}>)", "", f"图片来源：{image.get('url', '')}", ""]
     return lines
 
 
@@ -114,7 +150,7 @@ def render_extreme_md(lesson_name: str, analysis: dict, max_points: int) -> str:
         lines += ["## 老师划的重点", ""]
         for e in emphasis[:6]:
             ts = f"`{e['timestamp']}` " if e.get("timestamp") else ""
-            lines.append(f"- {ts}{e['quote']}")
+            lines.append(f"- {ts}{e['quote']}" + ("（AI 概括，原话待核对）" if e.get("verified") is False else ""))
         lines.append("")
 
     pitfalls = analysis.get("pitfalls") or []
@@ -124,6 +160,11 @@ def render_extreme_md(lesson_name: str, analysis: dict, max_points: int) -> str:
             lines.append(f"- {p['point']}")
         lines.append("")
 
+    if analysis.get("memory_sources"):
+        lines += ["## 参考的前后课材料", "", "> 以下属于其他课堂，未作为本课教师原话。", ""]
+        for source in analysis["memory_sources"]:
+            lines += [f"- [{source['lesson_name']}](lesson:{source['lesson_id']})：{source['title']}"]
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -144,15 +185,17 @@ def render_detailed_md(lesson_name: str, analysis: dict,
     points = analysis.get("key_points") or []
     if not points:
         lines += ["_没有提取到知识点。_", ""]
+    inserted = set()
     for i, kp in enumerate(points, start=1):
         lines.append(f"### {i}. {kp['title']}　`{stars(kp.get('importance', 3))}`")
         lines.append("")
         if kp.get("detail"):
             lines += [kp["detail"], ""]
+        lines.extend(_rich_blocks(kp))
 
         meta = []
         if kp.get("pages"):
-            meta.append("讲义 " + "、".join(f"P{p}" for p in kp["pages"]))
+            meta.append("讲义 " + "、".join(f"[P{p}](source:{p})" for p in kp["pages"]))
         if kp.get("timestamp"):
             meta.append(f"录音 {kp['timestamp']}")
         if kp.get("type"):
@@ -164,10 +207,11 @@ def render_detailed_md(lesson_name: str, analysis: dict,
             lines += [f"- **可能考法**：{kp['exam_hint']}"]
             lines.append("")
 
-        for page in kp.get("pages") or []:
+        for page in kp.get("illustration_pages", kp.get("pages")) or []:
             rel = shot_rel.get(page)
-            if rel:
+            if rel and page not in inserted:
                 lines += [f"![讲义第 {page} 页]({rel})", ""]
+                inserted.add(page)
 
     focus = analysis.get("exam_focus") or []
     if focus:
@@ -197,6 +241,8 @@ def render_detailed_md(lesson_name: str, analysis: dict,
         for e in emphasis:
             ts = f"`{e['timestamp']}` " if e.get("timestamp") else ""
             line = f"- {ts}**{e['quote']}**"
+            if e.get("verified") is False:
+                line += "（AI 概括，原话待核对）"
             if e.get("note"):
                 line += f"　—— {e['note']}"
             lines.append(line)
@@ -212,6 +258,11 @@ def render_detailed_md(lesson_name: str, analysis: dict,
             lines.append(x["content"])
             lines.append("")
 
+    if analysis.get("memory_sources"):
+        lines += ["## 参考的前后课材料", "", "> 以下属于其他课堂，未作为本课教师原话。", ""]
+        for source in analysis["memory_sources"]:
+            lines += [f"- [{source['lesson_name']}](lesson:{source['lesson_id']})：{source['title']}"]
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -317,7 +368,7 @@ def render_docx(path: str | Path, lesson_name: str, analysis: dict,
 
             meta = []
             if kp.get("pages"):
-                meta.append("讲义 " + "、".join(f"P{p}" for p in kp["pages"]))
+                meta.append("讲义 " + "、".join(f"[P{p}](source:{p})" for p in kp["pages"]))
             if kp.get("timestamp"):
                 meta.append(f"录音 {kp['timestamp']}")
             if meta:
@@ -396,7 +447,7 @@ def render_docx(path: str | Path, lesson_name: str, analysis: dict,
 
             meta = []
             if kp.get("pages"):
-                meta.append("讲义 " + "、".join(f"P{p}" for p in kp["pages"]))
+                meta.append("讲义 " + "、".join(f"[P{p}](source:{p})" for p in kp["pages"]))
             if kp.get("timestamp"):
                 meta.append(f"录音 {kp['timestamp']}")
             if meta:
@@ -479,6 +530,16 @@ def build_guides(lesson_name: str, analysis: dict, out_dir: Path,
     """生成四种产物：极限版 md/docx、详细版 md/docx。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     max_points = int(options.get("extreme_max_points", 12))
+    external = options.get("external_assets_dir")
+    for point in analysis.get("key_points", []):
+        for image in point.get("images", []):
+            name = image.get("cached_name", "")
+            if external and re.fullmatch(r"[a-f0-9]{24}\.png", name):
+                source = Path(external) / name
+                if source.is_file():
+                    target = out_dir / "assets" / "external" / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
 
     # Markdown 里的图片走相对路径，方便整个目录拷走
     shot_rel: dict[int, str] = {}
@@ -499,19 +560,11 @@ def build_guides(lesson_name: str, analysis: dict, out_dir: Path,
     detailed_md.write_text(render_detailed_md(lesson_name, analysis, shot_rel),
                            encoding="utf-8")
     result["detailed_md"] = str(detailed_md)
-
-    try:
-        render_docx(out_dir / "极限版.docx", lesson_name, analysis,
-                    "extreme", {}, max_points)
-        result["extreme_docx"] = str(out_dir / "极限版.docx")
-    except Exception:  # noqa: BLE001
-        pass
-
-    try:
-        render_docx(out_dir / "详细版.docx", lesson_name, analysis,
-                    "detailed", shots, max_points)
-        result["detailed_docx"] = str(out_dir / "详细版.docx")
-    except Exception:  # noqa: BLE001
-        pass
+    for mode, label in (("extreme", "极限版"), ("detailed", "详细版")):
+        try:
+            write_docx(Path(result[f"{mode}_md"]).read_text(encoding="utf-8"), out_dir / f"{label}.docx", out_dir)
+        except Exception as exc:
+            raise RuntimeError(f"{label} Word 导出失败，旧结果已保留，可单独重试导出：{exc}") from exc
+        result[f"{mode}_docx"] = str(out_dir / f"{label}.docx")
 
     return result

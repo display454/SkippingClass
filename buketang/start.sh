@@ -26,13 +26,7 @@ if [ ! -x "$VPY" ]; then
   "$PY" -m venv .venv
 fi
 
-if [ ! -f .venv/.deps-ready ]; then
-  echo "[2/2] 安装依赖，第一次可能要几分钟 ..."
-  "$VPY" -m pip install -q --upgrade pip
-  "$VPY" -m pip install -q -r requirements.txt ||
-    "$VPY" -m pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-  touch .venv/.deps-ready
-fi
+"$VPY" "../shared/bootstrap.py" requirements.txt
 
 if ! "$VPY" -c "import sys; sys.path.insert(0, '..'); from shared.audio_utils import find_ffmpeg; sys.exit(0 if find_ffmpeg() else 1)"; then
   echo "    [提示] 没检测到 ffmpeg：macOS 用 brew install ffmpeg，Ubuntu 用 sudo apt install ffmpeg"

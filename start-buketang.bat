@@ -38,20 +38,10 @@ if not exist "%VPY%" (
   )
 )
 
-if not exist ".venv\.deps-ready" (
-  echo [2/2] 安装依赖，第一次可能要几分钟 ...
-  "%VPY%" -m pip install -q --upgrade pip
-  "%VPY%" -m pip install -q -r requirements.txt
-  if errorlevel 1 (
-    echo     默认源较慢，改用清华镜像重试 ...
-    "%VPY%" -m pip install -q -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-  )
-  if errorlevel 1 (
-    echo [x] 依赖安装失败，请检查网络后重新启动。
-    pause
-    exit /b 1
-  )
-  type nul > ".venv\.deps-ready"
+"%VPY%" "shared\bootstrap.py" requirements.txt
+if errorlevel 1 (
+  pause
+  exit /b 1
 )
 
 "%VPY%" "buketang\app.py"

@@ -7,6 +7,11 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/theme.js"></script>
+<script src="/static/security.js"></script>
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/markdown-it/markdown-it.min.js"></script>
+<script src="/static/richtext.js"></script>
 </head>
 <body>
 
@@ -99,6 +104,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5l13 7.5-13 7.5z"/></svg>
             <span>开始分析</span>
           </button>
+          <button class="btn btn-line" id="btnTranscribe">仅转录</button>
+          <button class="btn btn-line" id="btnPreprocess">筛选逐字稿</button>
+          <button class="btn btn-line" id="btnExport">重新导出</button>
+          <button class="btn btn-line" id="btnOrder">调整课次</button>
+          <label><input type="checkbox" id="laterMemory"> 允许参考后续课的更正</label>
           <button class="btn btn-line hidden" id="btnCancel">停止</button>
         </div>
       </header>
@@ -144,12 +154,32 @@
         </section>
       </div>
 
+      <section class="panel formula-panel">
+        <label for="formulaPages">需要转写公式的讲义全局页码</label>
+        <input id="formulaPages" placeholder="例如 2,5；每次最多六页">
+        <button class="btn btn-line btn-sm" id="btnFormulaEvidence">识别选中公式页</button>
+        <p class="hint">将选中页发送给设置中的视觉模型；本地端点可留在本机。识别结果仍需对照原页核对。</p>
+        <pre id="formulaEvidence"></pre>
+        <details><summary>给考点添加外链配图</summary>
+          <select id="imagePoint" aria-label="选择考点"></select>
+          <input id="imageUrl" type="url" placeholder="公网 HTTPS 图片地址">
+          <input id="imageCaption" placeholder="图片说明与来源">
+          <button class="btn btn-line btn-sm" id="btnAddImage">添加后重新导出</button>
+        </details>
+      </section>
       <section class="transcript hidden" id="transcript">
         <button class="t-head" id="btnTranscript" aria-expanded="false">
           <span class="caret"></span>
           <span class="t-title">课堂转录全文</span>
           <span class="hint" id="transcriptMeta"></span>
         </button>
+        <div class="transcript-tools">
+          <button class="btn btn-line btn-sm" data-transcript-view="raw">原文</button>
+          <button class="btn btn-line btn-sm" data-transcript-view="clean">净化稿</button>
+          <button class="btn btn-line btn-sm" data-transcript-view="removed">已剔除</button>
+          <button class="btn btn-line btn-sm" id="btnTranscriptDownload">导出当前稿</button>
+          <button class="btn btn-line btn-sm" id="btnTranscriptJson">导出标注 JSON</button>
+        </div>
         <div class="t-body hidden" id="transcriptBody"></div>
       </section>
 
@@ -159,7 +189,7 @@
             <button data-mode="extreme" class="active">极限版</button>
             <button data-mode="detailed">详细版</button>
           </div>
-          <div class="result-tools">
+          <div class="result-tools"><select id="revisionSelect" aria-label="复习指导版本"><option value="">当前版本</option></select>
             <div class="dl-group" id="dlGroup"></div>
             <button class="btn btn-line btn-sm" id="btnCopy" title="复制全文，可直接粘进笔记软件">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 6V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/></svg>
@@ -203,6 +233,23 @@
         <div id="courseLessons"></div>
       </section>
 
+      <section class="panel course-memory">
+        <details id="batchImport"><summary>批量导入本课程的讲义与录音</summary>
+          <p class="hint">选择多个文件，核对“课堂名称”；名称相同的讲义和录音会归到同一堂课。</p>
+          <input id="batchFiles" type="file" multiple accept=".pdf,.ppt,.pptx,.doc,.docx,.md,.txt,.mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.mkv">
+          <div id="batchRows"></div>
+          <button class="btn btn-line btn-sm" id="btnBatchImport">按分组新建并导入</button>
+          <p id="batchProgress" class="hint"></p>
+        </details>
+        </section>
+      <section class="panel course-memory">
+        <h3>课程记忆</h3>
+        <label><input type="checkbox" id="memoryEnabled" checked> 生成时参考本课程的前课内容</label>
+        <textarea id="memoryNotes" rows="3" maxlength="4000" placeholder="补充本课程的术语、符号约定（标记为你的笔记）"></textarea>
+        <div><button class="btn btn-line btn-sm" id="btnSaveMemory">保存约定</button>
+        <button class="btn btn-line btn-sm" id="btnViewMemory">查看记忆来源</button></div>
+        <pre id="memorySources" class="hidden"></pre>
+      </section>
       <section class="result hidden" id="sumResult">
         <div class="result-bar">
           <div class="result-label">期末总复习</div>
@@ -264,7 +311,8 @@
         <label>模型<em id="llmHint">填控制台的模型 ID 或接入点 ID</em></label>
         <input type="text" id="llmModel" placeholder="deepseek-chat" list="ollamaModels">
         <datalist id="ollamaModels"></datalist>
-      </div>
+      </div><div class="field"><label for="visionModel">视觉模型（可选，与当前接口和密钥共用）</label><input id="visionModel" placeholder="支持图片输入的模型名称"></div><div class="field"><label for="llmInputBudget">单次输入上限（字符估算，自动分块）</label><input id="llmInputBudget" type="number" min="4000" max="100000" step="1000" value="24000"></div>
+<div class="field"><label for="llmOutputTokens">单次输出上限（tokens）</label><input id="llmOutputTokens" type="number" min="1000" max="16000" step="1000" value="8000"></div>
 
       <div class="local-card hidden" id="ollamaCard">
         <div class="local-head">
@@ -329,7 +377,8 @@
       <label class="switch-row">
         <span>详细版插入讲义截图<em>关键知识点旁边放上原始页面</em></span>
         <input type="checkbox" id="withShots" checked><i class="switch"></i>
-      </label>
+      </label><div class="field"><label for="maxShots">全篇截图上限</label><input id="maxShots" type="number" min="0" max="30" value="3"></div>
+<div class="field"><label><input id="autoPreprocess" type="checkbox" checked> 生成前筛选无关闲聊（保留原始稿）</label></div>
     </section>
 
     <section class="group">

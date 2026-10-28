@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from shared.storage import write_json
+from shared.local_security import bind_endpoint, local_url, public_config
 
 ROOT = Path(__file__).resolve().parent.parent
 # 数据目录可用环境变量重定向，便于隔离测试或把数据放到别处
@@ -74,9 +76,11 @@ DEFAULTS: dict[str, Any] = {
         "base_url": "https://ark.cn-beijing.volces.com/api/v3",
         "api_key": "",
         "model": "",
+        "vision_model": "",
         "temperature": 0.3,
         "max_tokens": 8000,
         "timeout": 300,
+        "input_chars": 24000,
     },
     "asr": None,          # None = 继承音频应用的配置
     "guide": {
@@ -85,6 +89,8 @@ DEFAULTS: dict[str, Any] = {
         "detailed_with_shots": True,  # 详细型是否插入讲义截图
         "shot_dpi": 130,
         "shot_quality": 82,
+        "max_shots": 3,
+        "preprocess": True,
     },
 }
 
@@ -121,10 +127,14 @@ def load() -> dict[str, Any]:
 
 def save(patch: dict[str, Any]) -> dict[str, Any]:
     with _lock:
-        cfg = _deep_merge(load(), patch or {})
-        CONFIG_PATH.write_text(
-            json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        before = load()
+        cfg = _deep_merge(before, patch or {})
+        bind_endpoint(before["llm"], cfg["llm"], patch.get("llm") or {})
+        old_providers = ((before.get("asr") or {}).get("providers") or {})
+        for pid, values in ((cfg.get("asr") or {}).get("providers") or {}).items():
+            bind_endpoint(old_providers.get(pid, {}), values,
+                          ((patch.get("asr") or {}).get("providers") or {}).get(pid, {}))
+        write_json(CONFIG_PATH, cfg)
         return cfg
 
 
@@ -136,8 +146,7 @@ def mask(secret: str) -> str:
 
 
 def _is_local_url(url: str) -> bool:
-    low = (url or "").lower()
-    return any(h in low for h in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
+    return local_url(url)
 
 
 def llm_ready(cfg: dict[str, Any]) -> bool:
@@ -200,8 +209,7 @@ def asr_inherited(cfg: dict[str, Any] | None = None) -> bool:
 
 
 def public_view(cfg: dict[str, Any]) -> dict[str, Any]:
-    out = copy.deepcopy(cfg)
-    out["llm"]["api_key"] = mask(cfg.get("llm", {}).get("api_key", ""))
+    out = public_config(cfg)
     out["llm_ready"] = llm_ready(cfg)
     out["presets"] = LLM_PRESETS
     out["llm_is_local"] = _is_local_url(cfg.get("llm", {}).get("base_url", ""))
@@ -282,7 +290,9 @@ def asr_config(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             base["provider"] = own["provider"]
         providers = dict(base.get("providers") or {})
         for pid, values in (own.get("providers") or {}).items():
-            providers[pid] = {**providers.get(pid, {}), **values}
+            previous = providers.get(pid, {})
+            providers[pid] = {**previous, **values}
+            bind_endpoint(previous, providers[pid], values)
         base["providers"] = providers
         for key in ("segment_minutes", "language"):
             if opt := own.get(key):

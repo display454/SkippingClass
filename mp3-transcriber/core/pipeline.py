@@ -16,6 +16,8 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
+from shared.storage import write_json
+from shared.local_security import redact_message
 from pathlib import Path
 from typing import Any
 
@@ -117,9 +119,7 @@ class JobStore:
         try:
             data = [asdict(j) for j in self._jobs.values()]
             JOBS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            JOBS_PATH.write_text(
-                json.dumps(data, ensure_ascii=False), encoding="utf-8"
-            )
+            write_json(JOBS_PATH, data)
         except (OSError, TypeError):
             pass
 
@@ -255,13 +255,13 @@ class JobStore:
             self._run(job_id, cfg)
         except ASRError as exc:
             self.update(job_id, status="failed", stage="识别失败",
-                        error=str(exc), finished_at=time.time())
+                        error=redact_message(exc, config.load()), finished_at=time.time())
         except audio.AudioError as exc:
             self.update(job_id, status="failed", stage="音频处理失败",
-                        error=str(exc), finished_at=time.time())
+                        error=redact_message(exc, config.load()), finished_at=time.time())
         except Exception as exc:  # noqa: BLE001
             self.update(job_id, status="failed", stage="未知错误",
-                        error=f"{type(exc).__name__}: {exc}", finished_at=time.time())
+                        error=f"{type(exc).__name__}: {redact_message(exc, config.load())}", finished_at=time.time())
 
     def _run(self, job_id: str, cfg: dict[str, Any]) -> None:
         job = self.get(job_id)
@@ -328,7 +328,7 @@ class JobStore:
         # 5. 渲染
         self.update(job_id, progress=92, stage="生成文档")
         paragraphs = render.merge_paragraphs(segments)
-        out_dir = config.OUTPUT_DIR / job_id
+        out_dir = config.OUTPUT_DIR / job_id / ("rev_" + uuid.uuid4().hex[:12])
         outputs = render.build_all(
             job_id=job_id,
             source_name=job.filename,
@@ -342,6 +342,10 @@ class JobStore:
             note=note,
         )
 
+        if self._is_canceled(job_id):
+            self._mark_canceled(job_id)
+            audio.cleanup([s["path"] for s in seg_files])
+            return
         self.update(job_id, status="done", stage="已完成", progress=100,
                     outputs=outputs, estimated_time=estimated,
                     finished_at=time.time())

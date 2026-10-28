@@ -98,6 +98,7 @@ def smoke(zip_path: Path) -> None:
     check("带了 LICENSE", (root / "LICENSE").exists(), True)
     check("带了第三方许可说明", (root / "THIRD_PARTY_NOTICES.md").exists(), True)
     check("带了 requirements.txt", (root / "requirements.txt").exists(), True)
+    check("带了升级依赖启动器", (root / "shared/bootstrap.py").is_file(), True)
     check("没把 data/ 打进来", any(p.name == "data" for p in root.rglob("data")), False)
     check("没把 models/ 打进来", any(p.name == "models" for p in root.rglob("models")), False)
 
@@ -163,6 +164,17 @@ def smoke(zip_path: Path) -> None:
             check(f"{name} 能取到共用 theme.css", (status, len(body) > 500), lambda v: v == (200, True))
             status, body = fetch(f"{base}/static/app.js")
             check(f"{name} 能取到自己的 app.js", status, 200)
+            status, body = fetch(f"{base}/static/security.js")
+            check(f"{name} 带本机会话组件", status, 200)
+            blocked = urllib.request.Request(f"{base}/api/config", data=b"{}", method="POST",
+                                             headers={"Content-Type": "application/json"})
+            status, _ = fetch(blocked)
+            check(f"{name} 拒绝无令牌写请求", status, 403)
+            if name == "buketang":
+                for asset in ("richtext.js", "vendor/katex/katex.min.js", "vendor/katex/katex.min.css",
+                              "vendor/katex/fonts/KaTeX_Main-Regular.woff2", "vendor/markdown-it/markdown-it.min.js"):
+                    status, _ = fetch(f"{base}/static/{asset}")
+                    check(f"{name} 离线资源 {asset}", status, 200)
 
             status, body = fetch(f"{base}/api/health")
             ver = re.search(rb'"version":"([^"]+)"', body or b"")
@@ -183,7 +195,7 @@ def main() -> None:
     ap.add_argument("zips", nargs="*", help="zip 路径；不填则测 dist/ 下全部")
     args = ap.parse_args()
 
-    zips = [Path(p).resolve() for p in args.zips] or sorted((ROOT / "dist").glob("*.zip"))
+    zips = [Path(p).resolve() for p in args.zips] or sorted((ROOT / "dist").glob(f"*-v{__version__}.zip"))
     if not zips:
         raise SystemExit("dist/ 里没有 zip，先跑 python tools/package.py")
 

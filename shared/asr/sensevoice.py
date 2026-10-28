@@ -151,6 +151,14 @@ def download_model(progress: dict | None = None, force: bool = False) -> dict[st
             progress["stage"] = "解压模型"
             progress["pct"] = 92.0
             with tarfile.open(archive, "r:bz2") as tar:
+                for member in tar.getmembers():
+                    target_path = (MODEL_ROOT / member.name).resolve()
+                    try:
+                        target_path.relative_to(MODEL_ROOT.resolve())
+                    except ValueError as exc:
+                        raise ASRError("模型压缩包路径越界") from exc
+                    if not (member.isfile() or member.isdir()):
+                        raise ASRError("模型压缩包包含不安全文件类型")
                 tar.extractall(MODEL_ROOT)
             archive.unlink(missing_ok=True)
 

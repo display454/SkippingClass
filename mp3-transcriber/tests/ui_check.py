@@ -72,7 +72,7 @@ def api(base: str, path: str, method: str = "GET", payload=None):
     import json
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(base + path, data=data, method=method,
-                                headers={"Content-Type": "application/json"})
+                                headers={"Content-Type": "application/json", "X-CSRF-Token": __import__("json").load(urllib.request.urlopen(base + "/api/security"))["token"]})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
@@ -82,8 +82,9 @@ def api(base: str, path: str, method: str = "GET", payload=None):
 
 def upload(base: str, path: Path) -> dict:
     import requests
+    token = requests.get(base + "/api/security").json()["token"]
     with path.open("rb") as fh:
-        r = requests.post(f"{base}/api/upload", files={"files": (path.name, fh, "audio/wav")},
+        r = requests.post(f"{base}/api/upload", files={"files": (path.name, fh, "audio/wav")}, headers={"X-CSRF-Token": token},
                           timeout=120)
     return r.json()
 

@@ -23,6 +23,7 @@ from core.pipeline import store
 from shared import audio_utils as audio
 from shared.asr import catalog, spec_of
 from shared.version import __version__
+from shared.local_security import install as install_security
 
 WEB_DIR = config.ROOT / "web"
 SHARED_WEB = config.ROOT.parent / "shared" / "web"
@@ -43,6 +44,7 @@ MIME = {
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD
 app.config["JSON_AS_ASCII"] = False
+install_security(app)
 
 
 def _clean_secret(val) -> str | None:
@@ -130,7 +132,7 @@ def set_config():
                 continue
             item = {}
             for k, v in vals.items():
-                if k in ("api_key", "access_key"):
+                if k in ("api_key", "access_key", "app_id"):
                     secret = _clean_secret(v)
                     if secret:
                         item[k] = secret
@@ -218,12 +220,14 @@ def retry_job(job_id: str):
     job = store.get(job_id)
     if not job:
         return jsonify({"ok": False, "error": "任务不存在"}), 404
+    if job.status not in ("done", "failed", "canceled"):
+        return jsonify(ok=False, error="任务尚未停止"), 409
     if not Path(job.src_path).exists():
         return jsonify({"ok": False, "error": "原始音频已被清理，请重新上传"}), 400
 
     store.update(job_id, status="queued", stage="重新排队", progress=0,
                  error="", segments_done=0, segments_total=0,
-                 outputs={}, canceled=False, finished_at=0.0)
+                 canceled=False, finished_at=0.0)
     store.submit(job_id, config.load())
     return jsonify({"ok": True})
 
@@ -233,6 +237,8 @@ def delete_job(job_id: str):
     job = store.get(job_id)
     if not job:
         return jsonify({"ok": False, "error": "任务不存在"}), 404
+    if job.status not in ("done", "failed", "canceled"):
+        return jsonify(ok=False, error="请先取消并等待任务停止"), 409
 
     for p in (job.outputs or {}).values():
         try:
@@ -248,15 +254,8 @@ def delete_job(job_id: str):
 
     out_dir = config.OUTPUT_DIR / job_id
     if out_dir.exists():
-        for f in out_dir.iterdir():
-            try:
-                f.unlink()
-            except OSError:
-                pass
-        try:
-            out_dir.rmdir()
-        except OSError:
-            pass
+        import shutil
+        shutil.rmtree(out_dir)
 
     store.remove(job_id)
     return jsonify({"ok": True})

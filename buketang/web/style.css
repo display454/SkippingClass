@@ -809,3 +809,26 @@
   .prose h2 { break-after: avoid; }
   .prose figure { break-inside: avoid; }
 }
+
+/* Transcript review and offline math. */
+.transcript-tools { display:flex; flex-wrap:wrap; gap:8px; padding:10px 16px; }
+.math-block { overflow-x:auto; padding:10px 0; }
+.math-error { color:var(--err); white-space:pre-wrap; }
+.remote-image { display:block; margin:12px 0; padding:12px; cursor:pointer; max-width:100%; }
+.segment-actions { display:flex; gap:5px; flex-wrap:wrap; }
+.t-line { gap:12px; }
+.t-reason { font-size:12px; color:var(--ink-soft); }
+.course-memory { padding:18px; margin:20px 0; }
+.course-memory textarea { width:100%; margin:12px 0; }
+.course-memory pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:400px; overflow:auto; }
+.prose table { display:block; overflow-x:auto; max-width:100%; }
+.result-tools select { max-width:180px; }
+@media (max-width:680px) { .doc-actions,.result-tools { flex-wrap:wrap; } .t-line { flex-wrap:wrap; } }
+
+.formula-panel { margin:16px 0; padding:16px; }
+.formula-panel pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.formula-panel input { max-width:100%; }
+
+.batch-row { display:flex; gap:12px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+.batch-row span { flex:1; min-width:160px; overflow-wrap:anywhere; }
+.batch-row input { max-width:100%; }

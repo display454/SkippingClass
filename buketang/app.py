@@ -24,6 +24,10 @@ from core import config, courses as course_store, summarize
 from core.backup import prepare_restore
 from core.store import STATUS_LABEL, store, RUNNING_STATUS
 from shared.version import __version__
+from shared.local_security import install as install_security
+from shared.storage import write_json
+from shared import transcript as transcript_tools
+from core import memory
 
 WEB_DIR = config.ROOT / "web"
 SHARED_WEB = config.ROOT.parent / "shared" / "web"
@@ -36,6 +40,29 @@ AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".amr",
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD
 app.config["JSON_AS_ASCII"] = False
+install_security(app)
+DATA_REQUEST_LOCK = threading.RLock()
+
+
+@app.before_request
+def guard_lesson_mutations():
+    from flask import g
+    if request.method not in ("GET", "HEAD", "OPTIONS") or request.path == "/api/backup":
+        DATA_REQUEST_LOCK.acquire()
+        g.data_request_lock = True
+        parts = request.path.split("/")
+        if len(parts) >= 4 and parts[1:3] == ["api", "lessons"]:
+            lesson = store.get(parts[3])
+            if lesson and lesson.get("status") in RUNNING_STATUS and not request.path.endswith("/cancel"):
+                return jsonify(ok=False, error="请先等待或停止当前任务"), 409
+
+
+@app.teardown_request
+def unlock_data_request(_error):
+    from flask import g
+    if getattr(g, "data_request_lock", False):
+        g.data_request_lock = False
+        DATA_REQUEST_LOCK.release()
 
 
 def _status_label(lesson: dict) -> str:
@@ -73,17 +100,30 @@ def serialize(lesson: dict, detail: bool = False) -> dict:
             for m in lesson.get("materials", [])
         ],
         "audios": [
-            {k: v for k, v in a.items() if k not in ("segments", "path")}
+            {k: v for k, v in a.items() if k not in ("segments", "path", "cached_segments", "transcription_key")}
             for a in lesson.get("audios", [])
         ],
         "guides": sorted((lesson.get("guides") or {}).keys()),
         "has_transcript": bool(lesson.get("transcript_text")),
+        "has_cleaned": bool(lesson.get("cleaned")),
+        "raw_revision": lesson.get("raw_revision", ""),
+        "clean_version": (lesson.get("cleaned") or {}).get("version", ""),
+        "sequence": lesson.get("sequence", 0),
+        "include_later_memory": lesson.get("include_later_memory", False),
+        "current_revision": lesson.get("current_revision", "legacy"),
+        "history": [{"id": item["id"], "created": item.get("created", 0)} for item in lesson.get("history", [])],
         "duration": round(sum(a.get("duration", 0) for a in lesson.get("audios", [])), 1),
         "points": len(key_points),
+        "transcript_chars": len(lesson.get("transcript_text", "")),
+        "last_usage": lesson.get("last_usage"),
     }
     if detail:
         out["analysis"] = lesson.get("analysis")
         out["transcript_preview"] = (lesson.get("transcript_text") or "")[:1200]
+        out["formula_evidence"] = [{"material": mat.get("filename"), "page": page["index"],
+                                    "formulas": page["formula_evidence"]}
+                                   for mat in lesson.get("materials", []) for page in mat.get("pages", [])
+                                   if page.get("formula_evidence")]
     return out
 
 
@@ -137,12 +177,12 @@ def set_config():
     llm = data.get("llm")
     if isinstance(llm, dict):
         item: dict = {}
-        for key in ("preset", "base_url", "model"):
+        for key in ("preset", "base_url", "model", "vision_model"):
             if isinstance(llm.get(key), str):
                 item[key] = llm[key].strip()
         if llm.get("api_key") and set(str(llm["api_key"])) != {"*"} and "******" not in str(llm["api_key"]):
             item["api_key"] = str(llm["api_key"]).strip()
-        for key in ("temperature", "max_tokens", "timeout"):
+        for key in ("temperature", "max_tokens", "timeout", "input_chars"):
             if key in llm:
                 try:
                     item[key] = float(llm[key]) if key == "temperature" else int(llm[key])
@@ -160,6 +200,13 @@ def set_config():
                 pass
         if "detailed_with_shots" in guide:
             g["detailed_with_shots"] = bool(guide["detailed_with_shots"])
+        if "preprocess" in guide:
+            g["preprocess"] = bool(guide["preprocess"])
+        if "max_shots" in guide:
+            try:
+                g["max_shots"] = max(0, min(30, int(guide["max_shots"])))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="截图上限必须是数字"), 400
         if "summary_top" in guide:
             try:
                 g["summary_top"] = max(8, min(40, int(guide["summary_top"])))
@@ -211,7 +258,7 @@ def lessons_of_course(course_id: str) -> list[dict]:
 
 def serialize_course(course: dict) -> dict:
     items = lessons_of_course(course["id"])
-    done = [l for l in items if l.get("status") == "done"]
+    done = [l for l in items if l.get("guides") and (l.get("analysis") or {}).get("key_points")]
     out = dict(course)
     out.update({
         "lessons": len(items),
@@ -249,6 +296,8 @@ def update_course(course_id: str):
 
 @app.delete("/api/courses/<course_id>")
 def delete_course(course_id: str):
+    if any(item.get("status") in RUNNING_STATUS for item in lessons_of_course(course_id)):
+        return jsonify(ok=False, error="请先停止课程中的运行任务"), 409
     moved = store.clear_course(course_id)
     ok = course_store.courses.delete(course_id)
     return jsonify({"ok": ok, "moved_lessons": moved})
@@ -277,7 +326,7 @@ def _summary_worker(course_id: str) -> None:
         if not course:
             raise summarize.SummarizeError("课程不存在")
         lessons = lessons_of_course(course_id)
-        out_dir = config.DATA_DIR / "courses" / course_id
+        out_dir = config.DATA_DIR / "courses" / course_id / ("rev_" + uuid.uuid4().hex[:12])
         files = summarize.build_summary(course, lessons, out_dir,
                                        config.load().get("guide", {}))
         job.update({"status": "done", "stage": "已生成"})
@@ -348,6 +397,14 @@ def patch_lesson(lesson_id: str):
         return jsonify({"ok": False, "error": "课堂不存在"}), 404
 
     data = request.get_json(silent=True) or {}
+    if "sequence" in data:
+        try:
+            sequence = max(1, min(10000, int(data["sequence"])))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="课次必须是正整数"), 400
+        store.update(lesson_id, sequence=sequence, stale=bool(lesson.get("guides")))
+    if "include_later_memory" in data:
+        store.update(lesson_id, include_later_memory=bool(data["include_later_memory"]), stale=bool(lesson.get("guides")))
     if isinstance(data.get("name"), str):
         store.rename(lesson_id, data["name"])
     if "course_id" in data:
@@ -492,7 +549,7 @@ def run_lesson(lesson_id: str):
         }), 400
 
     asr = config.asr_config(cfg)
-    if not config.asr_ready(asr):
+    if not lesson.get("transcript") and not config.asr_ready(asr):
         return jsonify({
             "ok": False,
             "error": "语音引擎还没配好：转录用的是「语音转录工坊」里的引擎设置，"
@@ -502,8 +559,8 @@ def run_lesson(lesson_id: str):
     if lesson["status"] in ("parsing", "transcribing", "analyzing", "rendering"):
         return jsonify({"ok": False, "error": "这堂课还在处理中"}), 409
 
-    store.update(lesson_id, status="parsing", stage="排队中", progress=1, error="")
-    store.run(lesson_id)
+    if not store.run(lesson_id):
+        return jsonify(ok=False, error="这堂课还在处理中"), 409
     return jsonify({"ok": True})
 
 
@@ -517,7 +574,11 @@ def preview(lesson_id: str):
 
     mode = request.args.get("mode", "extreme")
     key = f"{mode}_md"
-    path = (lesson.get("guides") or {}).get(key)
+    selected = lesson
+    revision = request.args.get("revision")
+    if revision and revision != lesson.get("current_revision"):
+        selected = next((item for item in lesson.get("history", []) if item["id"] == revision), {})
+    path = (selected.get("guides") or {}).get(key)
     if not path or not Path(path).exists():
         return jsonify({"ok": False, "error": "该版本还没有生成"}), 404
 
@@ -531,7 +592,153 @@ def transcript(lesson_id: str):
     lesson = store.get(lesson_id)
     if not lesson:
         return jsonify({"ok": False, "error": "课堂不存在"}), 404
-    return jsonify({"ok": True, "text": lesson.get("transcript_text") or ""})
+    view = request.args.get("view", "raw")
+    if view not in ("raw", "clean", "removed"):
+        return jsonify(ok=False, error="不支持的逐字稿视图"), 400
+    content = transcript_tools.text(lesson.get("transcript", []), lesson.get("cleaned"), view)
+    if view == "raw":
+        content = lesson.get("transcript_text") or content
+    return jsonify(ok=True, text=content, view=view,
+                   version=(lesson.get("cleaned") or {}).get("version", ""),
+                   has_cleaned=bool(lesson.get("cleaned")),
+                   segments=transcript_tools.rows(lesson.get("transcript", []), lesson.get("cleaned"), view))
+
+
+@app.post("/api/lessons/<lesson_id>/transcribe")
+@app.post("/api/lessons/<lesson_id>/preprocess")
+@app.post("/api/lessons/<lesson_id>/export")
+@app.post("/api/lessons/<lesson_id>/formulas/recognize")
+def stage_lesson(lesson_id: str):
+    lesson = store.get(lesson_id)
+    if not lesson:
+        return jsonify(ok=False, error="课堂不存在"), 404
+    mode = {"transcribe": "transcribe", "preprocess": "clean", "export": "export", "recognize": "vision"}[request.path.rsplit("/", 1)[1]]
+    if mode == "vision":
+        pages = (request.get_json(silent=True) or {}).get("pages", [])
+        if not isinstance(pages, list) or not pages or len(pages) > 6 or any(type(page) is not int or page < 1 for page in pages):
+            return jsonify(ok=False, error="每次选择 1 至 6 个实际页码"), 400
+        store.update(lesson_id, requested_formula_pages=pages)
+    if mode == "clean" and not config.llm_ready(config.load()):
+        return jsonify(ok=False, error="筛选内容需要配置本地或云端大模型"), 400
+    if not store.run(lesson_id, mode):
+        return jsonify(ok=False, error="当前任务尚未结束"), 409
+    return jsonify(ok=True)
+
+
+@app.get("/api/lessons/<lesson_id>/transcript/download")
+def transcript_download(lesson_id: str):
+    lesson = store.get(lesson_id)
+    if not lesson:
+        return jsonify(ok=False, error="课堂不存在"), 404
+    view, fmt = request.args.get("view", "raw"), request.args.get("format", "md")
+    if view not in ("raw", "clean", "removed") or fmt not in ("md", "json"):
+        return jsonify(ok=False, error="不支持的导出选项"), 400
+    if fmt == "json":
+        value = {"schema_version": 2, "lesson_id": lesson_id, "raw_text": lesson.get("transcript_text", ""),
+                 "segments": transcript_tools.normalize(lesson.get("transcript", [])), "cleaned": lesson.get("cleaned")}
+        content = json.dumps(value, ensure_ascii=False, indent=2)
+    else:
+        value = transcript_tools.text(lesson.get("transcript", []), lesson.get("cleaned"), view)
+        content = f"# {lesson['name']} · {view}\n\n" + (value or (lesson.get("transcript_text", "") if view == "raw" else "暂无内容"))
+    return send_file(io.BytesIO(content.encode("utf-8")), mimetype="application/json" if fmt == "json" else "text/markdown",
+                     as_attachment=True, download_name=f"{lesson['name']}_{view}.{fmt}")
+
+
+@app.patch("/api/lessons/<lesson_id>/transcript/segments/<segment_id>")
+def edit_segment(lesson_id: str, segment_id: str):
+    lesson = store.get(lesson_id)
+    if not lesson or segment_id not in {item["id"] for item in transcript_tools.normalize(lesson.get("transcript", []))}:
+        return jsonify(ok=False, error="句段不存在"), 404
+    data = request.get_json(silent=True) or {}
+    import copy
+    cleaned = copy.deepcopy(lesson.get("cleaned") or {"annotations": {}, "source_hash": transcript_tools.fingerprint(transcript_tools.normalize(lesson["transcript"]))})
+    if data.get("version", "") != cleaned.get("version", ""):
+        return jsonify(ok=False, error="逐字稿已被修改，请刷新"), 409
+    annotation = cleaned["annotations"].setdefault(segment_id, {"category": "uncertain", "keep": True})
+    if "keep" in data:
+        annotation["keep"] = bool(data["keep"])
+    if "text" in data:
+        value = data["text"]
+        if not isinstance(value, str) or len(value) > 10000:
+            return jsonify(ok=False, error="修订文字过长或无效"), 400
+        annotation["edited_text"] = value
+    annotation["manual"] = True
+    cleaned["version"] = transcript_tools.fingerprint([cleaned, time.time()])
+    store.update(lesson_id, cleaned=cleaned, stale=bool(lesson.get("guides")))
+    return jsonify(ok=True, version=cleaned["version"])
+
+
+@app.get("/api/courses/<course_id>/memory")
+@app.post("/api/courses/<course_id>/memory/rebuild")
+def course_memory(course_id: str):
+    course = course_store.courses.get(course_id)
+    if not course:
+        return jsonify(ok=False, error="课程不存在"), 404
+    return jsonify(ok=True, memory=memory.index(course, store.all()))
+
+
+@app.get("/api/lessons/<lesson_id>/source/<int:page>")
+def source_page(lesson_id: str, page: int):
+    from core.analyze import CourseContext
+    from core import ingest
+    lesson = store.get(lesson_id)
+    if not lesson:
+        return jsonify(ok=False, error="课堂不存在"), 404
+    context = CourseContext(lesson.get("materials", []), "")
+    resolved = context.resolve([page])
+    if not resolved:
+        return jsonify(ok=False, error="原页不存在"), 404
+    ref = resolved[0]
+    material = lesson["materials"][ref["m"]]
+    pdf = material.get("pdf_path")
+    if not pdf or not Path(pdf).is_file():
+        return jsonify(ok=True, page=page, text=next(e["text"] for e in context.entries if e["g"] == page))
+    images = ingest.render_pages(pdf, [ref["page"]], store.outputs_dir(lesson_id) / "source_pages" / str(ref["m"]))
+    path = images.get(ref["page"])
+    return send_file(path, mimetype="image/jpeg") if path else (jsonify(ok=False, error="原页渲染失败"), 400)
+
+
+@app.post("/api/lessons/<lesson_id>/images/cache")
+def cache_external_image(lesson_id: str):
+    from shared.resources import cache_image
+    import copy
+    lesson = store.get(lesson_id)
+    if not lesson:
+        return jsonify(ok=False, error="课堂不存在"), 404
+    url = (request.get_json(silent=True) or {}).get("url", "")
+    analysis = copy.deepcopy(lesson.get("analysis") or {})
+    found = [image for point in analysis.get("key_points", []) for image in point.get("images", []) if image.get("url") == url]
+    if not found:
+        return jsonify(ok=False, error="该图片不是当前指导中的资源"), 400
+    try:
+        path = cache_image(url, store._dir(lesson_id) / "external_cache")
+    except Exception as exc:
+        return jsonify(ok=False, error=f"缓存失败：{type(exc).__name__}"), 400
+    for image in found:
+        image["cached_name"] = path.name
+    store.update(lesson_id, analysis=analysis, stale=True)
+    return jsonify(ok=True, message="已缓存，重新导出后纳入离线稿")
+
+
+@app.post("/api/lessons/<lesson_id>/images/add")
+def add_external_image(lesson_id: str):
+    from shared.resources import remote_image_url
+    import copy
+    lesson = store.get(lesson_id)
+    if not lesson:
+        return jsonify(ok=False, error="课堂不存在"), 404
+    data = request.get_json(silent=True) or {}
+    url, point = data.get("url", ""), data.get("point", 0)
+    analysis = copy.deepcopy(lesson.get("analysis") or {})
+    points = analysis.get("key_points", [])
+    if not remote_image_url(url) or type(point) is not int or not 0 <= point < len(points):
+        return jsonify(ok=False, error="请选择已有考点和有效公网 HTTPS 图片地址"), 400
+    images = points[point].setdefault("images", [])
+    if len(images) >= 3:
+        return jsonify(ok=False, error="每个考点最多三张外部配图"), 400
+    images.append({"url": url, "caption": str(data.get("caption", "辅助图片"))[:200]})
+    store.update(lesson_id, analysis=analysis, stale=True)
+    return jsonify(ok=True, message="已添加，重新导出后显示在指导中")
 
 
 @app.get("/api/lessons/<lesson_id>/download/<mode>/<fmt>")
@@ -540,7 +747,11 @@ def download(lesson_id: str, mode: str, fmt: str):
     if not lesson:
         return jsonify({"ok": False, "error": "课堂不存在"}), 404
 
-    path = (lesson.get("guides") or {}).get(f"{mode}_{fmt}")
+    selected = lesson
+    revision = request.args.get("revision")
+    if revision and revision != lesson.get("current_revision"):
+        selected = next((item for item in lesson.get("history", []) if item["id"] == revision), {})
+    path = (selected.get("guides") or {}).get(f"{mode}_{fmt}")
     if not path or not Path(path).exists():
         return jsonify({"ok": False, "error": "该文件尚未生成"}), 404
 
@@ -556,6 +767,13 @@ def download(lesson_id: str, mode: str, fmt: str):
 @app.get("/api/lessons/<lesson_id>/asset/<path:rel>")
 def asset(lesson_id: str, rel: str):
     base = store.outputs_dir(lesson_id).resolve()
+    lesson = store.get(lesson_id)
+    revision = request.args.get("revision") or (lesson or {}).get("current_revision")
+    allowed = {(lesson or {}).get("current_revision")} | {item["id"] for item in (lesson or {}).get("history", [])}
+    if revision and revision != "legacy":
+        if revision not in allowed:
+            return jsonify(ok=False, error="版本不存在"), 404
+        base = (base / revision).resolve()
     target = (base / rel).resolve()
     try:
         target.relative_to(base)
@@ -597,9 +815,13 @@ def backup():
     include_secrets = request.args.get("secrets") == "1"
     cfg = config.load() if include_secrets else _stripped_config()
 
-    buf = io.BytesIO()
+    if any(l.get("status") in RUNNING_STATUS or any(m.get("status") == "pending" for m in l.get("materials", [])) for l in store.all()):
+        return jsonify(ok=False, error="请等待运行任务结束后再备份"), 409
+    handle = tempfile.NamedTemporaryFile(prefix="buketang_backup_", suffix=".zip", delete=False)
+    archive_path = Path(handle.name)
+    handle.close()
     files = 0
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json", json.dumps({
             "app": "buketang",
             "version": __version__,
@@ -623,11 +845,12 @@ def backup():
                 zf.write(path, str(rel).replace("\\", "/"))
                 files += 1
 
-    buf.seek(0)
     stamp = time.strftime("%Y%m%d_%H%M")
-    return send_file(buf, as_attachment=True,
-                     download_name=f"buketang-backup_{stamp}.zip",
-                     mimetype="application/zip")
+    response = send_file(archive_path, as_attachment=True,
+                         download_name=f"buketang-backup_{stamp}.zip", mimetype="application/zip")
+    response.direct_passthrough = False
+    response.call_on_close(lambda: archive_path.unlink(missing_ok=True))
+    return response
 
 
 @app.post("/api/restore")
@@ -646,7 +869,13 @@ def restore():
                for l in store.all()) or any(j.get("status") == "running" for j in SUMMARY_JOBS.values()):
             return jsonify({"ok": False, "error": "请先等待当前任务完成或取消，再恢复备份"}), 409
         with zipfile.ZipFile(upload) as zf:
-            for info in zf.infolist():
+            infos = zf.infolist()
+            total = sum(info.file_size for info in infos)
+            if len(infos) > 50000 or total > 20 * 1024 ** 3 or total > shutil.disk_usage(tmp).free // 2:
+                return jsonify(ok=False, error="备份解压数量、体积或磁盘空间超限"), 400
+            if any(info.file_size > 1024 ** 2 and info.file_size > max(1, info.compress_size) * 1000 for info in infos):
+                return jsonify(ok=False, error="备份压缩比例异常"), 400
+            for info in infos:
                 target = (tmp / info.filename).resolve()
                 try:
                     target.relative_to(tmp.resolve())
@@ -659,6 +888,9 @@ def restore():
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
+        incoming = json.loads((tmp / "config.json").read_text(encoding="utf-8")) if (tmp / "config.json").is_file() else {}
+        write_json(tmp / "config.json", _keep_secrets(before, incoming))
+
         stamp = time.strftime("%Y%m%d_%H%M%S")
         saved = config.DATA_DIR.parent / "restore_backups" / f"{stamp}_{uuid.uuid4().hex[:8]}"
         saved.parent.mkdir(parents=True, exist_ok=True)
@@ -670,7 +902,6 @@ def restore():
         try:
             # 临时目录与数据目录在同一磁盘上，校验完成后用重命名完成替换。
             tmp.rename(config.DATA_DIR)
-            _keep_secrets(before)
             store.reload()
             course_store.courses.reload()
         except Exception:
@@ -699,32 +930,12 @@ def restore():
         RESTORE_LOCK.release()
 
 
-def _keep_secrets(before: dict) -> None:
-    """把恢复前本机已有的密钥补回配置里空缺的位置。"""
-    after = config.load()
-    llm_before = (before.get("llm") or {}).get("api_key") or ""
-    llm_after = (after.get("llm") or {}).get("api_key") or ""
-    if llm_before and not llm_after:
-        after.setdefault("llm", {})["api_key"] = llm_before
-
-    asr_after = after.get("asr") or {}
-    provs_after = asr_after.get("providers") or {}
-    provs_before = ((before.get("asr") or {}).get("providers")) or {}
-    for pid, old in provs_before.items():
-        if not isinstance(old, dict):
-            continue
-        cur = provs_after.setdefault(pid, {})
-        if not isinstance(cur, dict):
-            continue
-        for key in ("api_key", "access_key", "app_id"):
-            if old.get(key) and not cur.get(key):
-                cur[key] = old[key]
-
-    if provs_after:
-        asr_after["providers"] = provs_after
-    if asr_after:
-        after["asr"] = asr_after
-    config.save(after)
+def _keep_secrets(before: dict, incoming: dict) -> dict:
+    """恢复学习数据不导入连接配置，凭证始终与本机原端点绑定。"""
+    after = dict(incoming)
+    after["llm"] = before["llm"]
+    after["asr"] = before.get("asr")
+    return after
 
 
 # ---------------- 端侧能力 ----------------

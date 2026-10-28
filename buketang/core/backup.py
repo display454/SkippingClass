@@ -47,8 +47,12 @@ def prepare_restore(root: Path, destination: Path) -> None:
     manifest = read_json(root / "manifest.json")
     if not isinstance(manifest, dict) or manifest.get("app") != "buketang":
         raise ValueError("这不像一份「不听课」的备份包")
-    if (root / "config.json").exists() and not isinstance(read_json(root / "config.json"), dict):
-        raise ValueError("备份中的配置无效")
+    if (root / "config.json").exists():
+        settings = read_json(root / "config.json")
+        if not isinstance(settings, dict) or any(key in settings and not isinstance(settings[key], dict) for key in ("llm", "guide")):
+            raise ValueError("备份中的配置无效")
+        if settings.get("asr") is not None and not isinstance(settings["asr"], dict):
+            raise ValueError("备份中的语音配置无效")
 
     for path in (root / "lessons").glob("*/lesson.json"):
         lesson = read_json(path)
@@ -64,6 +68,13 @@ def prepare_restore(root: Path, destination: Path) -> None:
                     if key in item:
                         item[key] = rebase(item[key], anchor)
         lesson["guides"] = paths(lesson.get("guides", {}), anchor)
+        revision = lesson.get("current_revision")
+        if revision and not re.fullmatch(r"rev_[a-f0-9]{12}", str(revision)):
+            raise ValueError("备份中的结果版本无效")
+        for previous in lesson.get("history", []):
+            if not isinstance(previous, dict):
+                raise ValueError("备份中的历史结果无效")
+            previous["guides"] = paths(previous.get("guides", {}), anchor)
         write_json(path, lesson)
 
     course_file = root / "courses.json"

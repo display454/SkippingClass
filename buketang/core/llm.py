@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import requests
+from shared.local_security import local_url
 
 
 class LLMError(RuntimeError):
@@ -28,8 +29,7 @@ def _normalize_base(url: str) -> str:
 
 def is_local_endpoint(url: str) -> bool:
     """本地推理服务（Ollama / LM Studio / llama.cpp）不校验 API Key。"""
-    low = (url or "").lower()
-    return any(h in low for h in ("127.0.0.1", "localhost", "0.0.0.0", "[::1]"))
+    return local_url(url)
 
 
 def extract_json(text: str) -> dict:
@@ -75,6 +75,9 @@ class LLMClient:
         self.temperature = float(cfg.get("temperature", 0.3))
         self.max_tokens = int(cfg.get("max_tokens", 8000))
         self.timeout = int(cfg.get("timeout", 300))
+        self.input_chars = int(cfg.get("input_chars", 24000))
+        self.usage = {"attempts": 0, "reported": False, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        self.on_usage = None
         # 本地推理服务完全绕开系统代理，否则开着梯子会连不上自己
         self.session = requests.Session()
         if is_local_endpoint(self.base_url):
@@ -109,6 +112,9 @@ class LLMClient:
         for body in attempts:
             for retry in range(3):
                 try:
+                    self.usage["attempts"] += 1
+                    if self.on_usage:
+                        self.on_usage(dict(self.usage))
                     resp = self.session.post(url, headers=headers, json=body,
                                              timeout=(20, self.timeout))
                 except requests.RequestException as exc:
@@ -119,6 +125,16 @@ class LLMClient:
                 if resp.status_code == 200:
                     try:
                         data = resp.json()
+                        usage = data.get("usage")
+                        if isinstance(usage, dict):
+                            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                                if isinstance(usage.get(key), int) and usage[key] >= 0:
+                                    self.usage[key] += usage[key]
+                                    self.usage["reported"] = True
+                        if self.on_usage:
+                            self.on_usage(dict(self.usage))
+                        if data["choices"][0].get("finish_reason") == "length":
+                            raise LLMError("模型输出被长度上限截断，请调高输出上限或降低单次输入预算后重试")
                         return data["choices"][0]["message"]["content"] or ""
                     except (ValueError, KeyError, IndexError) as exc:
                         last_err = f"返回格式异常：{exc}"
@@ -132,11 +148,16 @@ class LLMClient:
                     continue
                 break
 
+        if self.api_key:
+            last_err = last_err.replace(self.api_key, "[凭证已隐藏]")
         raise LLMError(last_err or "调用大模型失败")
 
     def chat_json(self, messages: list[dict], **kwargs: Any) -> dict:
         text = self.chat(messages, **kwargs)
-        return extract_json(text)
+        value = extract_json(text)
+        if not isinstance(value, dict):
+            raise LLMError("模型返回的 JSON 顶层必须是对象")
+        return value
 
     @staticmethod
     def _error_text(resp: requests.Response) -> str:
